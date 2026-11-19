@@ -1,6 +1,6 @@
 node_modules/
 build/
-dist/
+/dist/
 coverage/
 .DS_Store
 *.log
@@ -10,6 +10,5 @@ target/
 src-tauri/target/
 src-tauri/gen/schemas/
 addons/target/
-dist/
 dist-release/
 

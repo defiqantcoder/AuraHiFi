@@ -74,14 +74,24 @@ jobs:
       - name: Lint DESIGN.md tokens
         run: npx @google/design.md lint DESIGN.md
 
+      - name: Build and bundle first-party Wasm add-ons
+        run: |
+          cargo build --release --target wasm32-unknown-unknown --manifest-path addons/Cargo.toml
+          mkdir -p src-tauri/addons/dist/metadata-enricher
+          mkdir -p src-tauri/addons/dist/lyrics-art
+          mkdir -p src-tauri/addons/dist/smart-playlists
+          cp addons/metadata-enricher/manifest.json src-tauri/addons/dist/metadata-enricher/
+          cp addons/lyrics-art/manifest.json src-tauri/addons/dist/lyrics-art/
+          cp addons/smart-playlists/manifest.json src-tauri/addons/dist/smart-playlists/
+          cp addons/metadata-enricher/plugin.wasm src-tauri/addons/dist/metadata-enricher/
+          cp addons/lyrics-art/plugin.wasm src-tauri/addons/dist/lyrics-art/
+          cp addons/smart-playlists/plugin.wasm src-tauri/addons/dist/smart-playlists/
+
       - name: Rust formatting check
         run: cargo fmt --all --check
 
       - name: Rust Clippy linter
         run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Build first-party Wasm add-ons
-        run: cargo build --release --target wasm32-unknown-unknown --manifest-path addons/Cargo.toml
 
       - name: Install cargo-nextest (if not present)
         run: |

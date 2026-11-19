@@ -1,0 +1,28 @@
+{
+  "id": "lyrics-art",
+  "name": "Lyrics & Cover Art (LRCLIB + CAA)",
+  "version": "1.1.0",
+  "apiVersion": "aura.addon/v1",
+  "pluginType": "lyrics",
+  "author": "AuraHiFi First-Party",
+  "description": "Synced LRC lyrics via LRCLIB (250-500ms sequential batching) and high-res artwork via Cover Art Archive.",
+  "license": "Apache-2.0",
+  "allowedHosts": [
+    "lrclib.net",
+    "coverartarchive.org",
+    "ia801509.us.archive.org",
+    "ia601509.us.archive.org",
+    "archive.org"
+  ],
+  "maxMemoryMb": 16,
+  "memoryMaxPages": 256,
+  "maxHttpResponseBytes": 10485760,
+  "wasi": false,
+  "hostFunctions": [
+    "save_lyrics_cache",
+    "read_scoped_credential"
+  ],
+  "sha256": "d9bf48173c226c2ab1b5dc55e4d7830d51568d9fbd4884e10188c1f0ed5fde0d",
+  "signature": "0960bad4c71cfaf9b40ff71e573144e4f7cbe86edd0a834de32d12d5b2111511f7c708024d92033d2be5e3c6c71663881e83f81bbacb1dbda7cfe8e75767b50b",
+  "signerKeyId": "aurahifi-ed25519-2026"
+}
