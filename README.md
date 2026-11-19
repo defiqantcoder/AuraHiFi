@@ -18,6 +18,54 @@
 
 ---
 
+## Installation
+
+### Option 1: Install Debian Package (.deb) on Ubuntu 24.04 / 26.04 LTS
+
+1. Download the latest `.deb` release package from [GitHub Releases](https://github.com/defiqantcoder/AuraHiFi/releases):
+```bash
+wget https://github.com/defiqantcoder/AuraHiFi/releases/download/v0.1.0/AuraHiFi_0.1.0_amd64.deb
+```
+
+2. Install the package with `apt` (automatically resolving dependencies):
+```bash
+sudo apt-get update && sudo apt-get install -y ./AuraHiFi_0.1.0_amd64.deb
+```
+
+3. Launch AuraHiFi from your desktop application launcher or via terminal:
+```bash
+aurahifi
+```
+
+### Option 2: Build and Install from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/defiqantcoder/AuraHiFi.git
+cd AuraHiFi
+
+# Install required system packages
+sudo apt-get update && sudo apt-get install -y \
+  build-essential \
+  pkg-config \
+  libwebkit2gtk-4.1-dev \
+  libasound2-dev \
+  libudev-dev \
+  libdbus-1-dev
+
+# Install dependencies and build frontend
+npm install
+npm run build
+
+# Compile the release .deb package
+npx tauri build --bundles deb
+
+# Install the built package
+sudo apt-get install -y src-tauri/target/release/bundle/deb/AuraHiFi_*.deb
+```
+
+---
+
 ## Architecture
 
 AuraHiFi couples a responsive React 19 / WebKitGTK frontend with a low-latency, real-time Rust audio engine on Tauri v2.
