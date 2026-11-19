@@ -449,7 +449,7 @@ pub async fn add_library_folder(
     let db_clone = state.db.clone();
     let path_clone = path.clone();
     let folder_id = folder.id.clone();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         run_scan_folder(state_clone, db_clone, &path_clone, &folder_id).await;
     });
 
@@ -524,7 +524,7 @@ async fn run_scan_folder(
         let job_id_for_prog = job_id.clone();
         crate::library::scanner::scan_folder(path, folder_id, &job_id_for_prog, move |event| {
             let state_prog = state_for_prog.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 let mut guard = state_prog.write().await;
                 guard
                     .scan_channels
@@ -562,7 +562,7 @@ pub async fn scan_library(
     let db_clone = state.db.clone();
     let paths_clone = paths.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         for path in &paths_clone {
             let folder_id = format!("folder-{}", crate::state::hash_path(path));
             run_scan_folder(state_clone.clone(), db_clone.clone(), path, &folder_id).await;
@@ -893,7 +893,7 @@ pub async fn subscribe_telemetry(
     }
 
     let inner = state.inner.clone();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(16));
         let mut tick: u64 = 0;
         loop {

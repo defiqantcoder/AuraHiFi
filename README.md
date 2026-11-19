@@ -24,12 +24,12 @@
 
 1. Download the latest `.deb` release package from [GitHub Releases](https://github.com/defiqantcoder/AuraHiFi/releases):
 ```bash
-wget https://github.com/defiqantcoder/AuraHiFi/releases/download/v0.1.0/AuraHiFi_0.1.0_amd64.deb
+wget https://github.com/defiqantcoder/AuraHiFi/releases/download/v0.1.1/AuraHiFi_0.1.1_amd64.deb
 ```
 
 2. Install the package with `apt` (automatically resolving dependencies):
 ```bash
-sudo apt-get update && sudo apt-get install -y ./AuraHiFi_0.1.0_amd64.deb
+sudo apt-get update && sudo apt-get install -y ./AuraHiFi_0.1.1_amd64.deb
 ```
 
 3. Launch AuraHiFi from your desktop application launcher or via terminal:

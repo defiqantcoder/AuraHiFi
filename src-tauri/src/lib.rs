@@ -27,7 +27,7 @@ pub fn run() {
                     let folders = db.list_library_folders().unwrap_or_default();
                     let tracks = db.list_tracks().unwrap_or_default();
                     let inner = app_state.inner.clone();
-                    tokio::spawn(async move {
+                    tauri::async_runtime::spawn(async move {
                         let mut guard = inner.write().await;
                         guard.library_folders = folders;
                         guard.tracks = tracks;
@@ -47,7 +47,7 @@ pub fn run() {
 
             let addon_mgr = app_state.addon_manager.clone();
             let inner_state = app_state.inner.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 addon_mgr.discover_bundled_addons(&search_paths).await;
                 let catalog_items = addon_mgr.list_catalog_items().await;
                 if !catalog_items.is_empty() {
