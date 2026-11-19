@@ -11,4 +11,5 @@ src-tauri/target/
 src-tauri/gen/schemas/
 addons/target/
 dist-release/
+src-tauri/addons/dist/bundled_addons.json
 
