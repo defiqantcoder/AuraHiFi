@@ -400,8 +400,15 @@ impl InnerState {
         let mut spatial_dsp = SpatialDspPipeline::new(sample_rate);
         let _ = spatial_dsp.apply_config(&spatial_config, replay_gain, true_peak);
 
+        let initial_active_id = devices
+            .iter()
+            .find(|d| d.transport_type == TransportType::Usb && !d.is_isolated_internal)
+            .or_else(|| devices.iter().find(|d| !d.is_isolated_internal))
+            .or_else(|| devices.first())
+            .map(|d| d.alsa_id.clone());
+
         Self {
-            active_device_id: devices.first().map(|d| d.alsa_id.clone()),
+            active_device_id: initial_active_id,
             devices,
             tracks,
             library_folders,

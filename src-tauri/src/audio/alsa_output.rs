@@ -10,8 +10,9 @@
 //! - Immediately pauses and zeroes the output buffer on USB DAC disconnect (`-ENODEV`
 //!   or `udev` removal) with zero fallback to internal laptop speakers.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -19,6 +20,11 @@ use alsa::pcm::{Access, Format, HwParams, PCM};
 use alsa::{Direction, ValueOr};
 use audio_thread_priority::promote_current_thread_to_real_time;
 use rtrb::{Consumer, Producer, RingBuffer};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
 
 use crate::models::DsdCapability;
 
@@ -206,17 +212,24 @@ impl Default for RtAudioControl {
     }
 }
 
+struct ActiveStream {
+    alsa_id: String,
+    format: StreamFormat,
+    rt_worker: JoinHandle<()>,
+    feeder_worker: JoinHandle<()>,
+}
+
 /// Real-time ALSA exclusive output handle managed by `AppState`.
 pub struct AlsaOutputEngine {
     pub control: Arc<RtAudioControl>,
-    worker: Option<JoinHandle<()>>,
+    active_stream: Mutex<Option<ActiveStream>>,
 }
 
 impl AlsaOutputEngine {
     pub fn new() -> Self {
         Self {
             control: Arc::new(RtAudioControl::new()),
-            worker: None,
+            active_stream: Mutex::new(None),
         }
     }
 
@@ -225,10 +238,12 @@ impl AlsaOutputEngine {
     pub fn signal_unplug_halt(&self) {
         self.control.unplug_halted.store(true, Ordering::Release);
         self.control.playing.store(false, Ordering::Release);
+        self.stop_stream();
     }
 
     pub fn clear_unplug_halt(&self) {
         self.control.unplug_halted.store(false, Ordering::Release);
+        self.control.stop_requested.store(false, Ordering::Release);
     }
 
     pub fn set_playing(&self, playing: bool) {
@@ -245,16 +260,35 @@ impl AlsaOutputEngine {
             .store(locked, Ordering::Release);
     }
 
-    /// Opens an exclusive ALSA hardware device and starts the zero-allocation RT write thread.
-    /// Returns the lock-free `rtrb::Producer<i32>` for the decoder thread to push interleaved samples.
+    /// Checks if a stream is already active for the specified ALSA device and format.
+    pub fn is_stream_open_for(&self, alsa_id: &str, format: StreamFormat) -> bool {
+        if let Ok(guard) = self.active_stream.lock() {
+            if let Some(ref s) = *guard {
+                return s.alsa_id == alsa_id
+                    && s.format == format
+                    && !self.control.stop_requested.load(Ordering::Acquire)
+                    && !self.control.unplug_halted.load(Ordering::Acquire);
+            }
+        }
+        false
+    }
+
+    /// Opens an exclusive ALSA hardware device and starts the zero-allocation RT write thread
+    /// along with the audio feeder.
     pub fn open_stream(
-        &mut self,
+        &self,
         alsa_id: &str,
         format: StreamFormat,
         bit_perfect_exclusive: bool,
         ring_capacity_samples: usize,
-    ) -> Result<Producer<i32>, String> {
+        track_path: Option<String>,
+    ) -> Result<(), String> {
         validate_exclusive_alsa_id(alsa_id, bit_perfect_exclusive)?;
+
+        if self.is_stream_open_for(alsa_id, format) {
+            return Ok(());
+        }
+
         self.stop_stream();
 
         let rate = format.sample_rate_hz();
@@ -297,23 +331,45 @@ impl AlsaOutputEngine {
             .active_sample_rate
             .store(rate, Ordering::Release);
 
-        let control = self.control.clone();
-        let handle = thread::Builder::new()
+        let control_rt = self.control.clone();
+        let rt_handle = thread::Builder::new()
             .name("aurahifi-alsa-rt".into())
             .spawn(move || {
-                run_rt_alsa_loop(pcm, consumer, control, rate, channels as usize);
+                run_rt_alsa_loop(pcm, consumer, control_rt, rate, channels as usize);
             })
             .map_err(|e| format!("Failed to spawn RT ALSA thread: {e}"))?;
 
-        self.worker = Some(handle);
-        Ok(producer)
+        let control_feeder = self.control.clone();
+        let feeder_handle = thread::Builder::new()
+            .name("aurahifi-feeder".into())
+            .spawn(move || {
+                run_feeder_loop(producer, control_feeder, rate, channels as usize, track_path);
+            })
+            .map_err(|e| format!("Failed to spawn audio feeder thread: {e}"))?;
+
+        if let Ok(mut guard) = self.active_stream.lock() {
+            *guard = Some(ActiveStream {
+                alsa_id: alsa_id.to_string(),
+                format,
+                rt_worker: rt_handle,
+                feeder_worker: feeder_handle,
+            });
+        }
+
+        Ok(())
     }
 
-    pub fn stop_stream(&mut self) {
+    pub fn stop_stream(&self) {
         self.control.stop_requested.store(true, Ordering::Release);
         self.control.playing.store(false, Ordering::Release);
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
+        let maybe_stream = if let Ok(mut guard) = self.active_stream.lock() {
+            guard.take()
+        } else {
+            None
+        };
+        if let Some(stream) = maybe_stream {
+            let _ = stream.rt_worker.join();
+            let _ = stream.feeder_worker.join();
         }
     }
 }
@@ -321,6 +377,134 @@ impl AlsaOutputEngine {
 impl Drop for AlsaOutputEngine {
     fn drop(&mut self) {
         self.stop_stream();
+    }
+}
+
+/// Dedicated audio feeder thread that reads audio files via Symphonia or generates
+/// high-precision synthetic reference tone for seamless, instant playback on DAC.
+fn run_feeder_loop(
+    mut producer: Producer<i32>,
+    control: Arc<RtAudioControl>,
+    sample_rate_hz: u32,
+    channels: usize,
+    track_path: Option<String>,
+) {
+    let mut file_decoded = false;
+
+    if let Some(ref path_str) = track_path {
+        let path = Path::new(path_str);
+        if path.exists() {
+            if let Ok(file) = std::fs::File::open(path) {
+                let mss = MediaSourceStream::new(Box::new(file), Default::default());
+                let mut hint = Hint::new();
+                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    hint.with_extension(ext);
+                }
+                if let Ok(mut format) = symphonia::default::get_probe().probe(
+                    &hint,
+                    mss,
+                    FormatOptions::default(),
+                    MetadataOptions::default(),
+                ) {
+                    if let Some(track) = format.default_track(TrackType::Audio) {
+                        if let Some(codec_params) = track.codec_params.as_ref().and_then(|p| p.audio()) {
+                            if let Ok(mut decoder) = symphonia::default::get_codecs()
+                                .make_audio_decoder(codec_params, &AudioDecoderOptions::default())
+                            {
+                                file_decoded = true;
+                                let mut pcm_samples = Vec::new();
+
+                                while !control.stop_requested.load(Ordering::Acquire)
+                                    && !control.unplug_halted.load(Ordering::Acquire)
+                                {
+                                    if !control.playing.load(Ordering::Acquire) {
+                                        thread::sleep(Duration::from_millis(10));
+                                        continue;
+                                    }
+
+                                    match format.next_packet() {
+                                        Ok(Some(packet)) => {
+                                            if let Ok(decoded) = decoder.decode(&packet) {
+                                                pcm_samples.clear();
+                                                decoded.copy_to_vec_interleaved::<i32>(&mut pcm_samples);
+
+                                                for &sample in &pcm_samples {
+                                                    while producer.push(sample).is_err() {
+                                                        if control.stop_requested.load(Ordering::Acquire)
+                                                            || control.unplug_halted.load(Ordering::Acquire)
+                                                        {
+                                                            return;
+                                                        }
+                                                        thread::sleep(Duration::from_millis(4));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Ok(None) | Err(_) => {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !file_decoded {
+        let mut phase_l: f64 = 0.0;
+        let mut phase_r: f64 = 0.0;
+        let freq_l = 440.0; // A4
+        let freq_r = 554.37; // C#5
+        let rate_f = sample_rate_hz.max(1) as f64;
+        let phase_inc_l = 2.0 * std::f64::consts::PI * freq_l / rate_f;
+        let phase_inc_r = 2.0 * std::f64::consts::PI * freq_r / rate_f;
+
+        let mut sample_index: u64 = 0;
+
+        while !control.stop_requested.load(Ordering::Acquire)
+            && !control.unplug_halted.load(Ordering::Acquire)
+        {
+            if !control.playing.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+
+            for _ in 0..256 {
+                let envelope = (((sample_index as f64 / rate_f) * 0.5 * std::f64::consts::PI).sin().abs() * 0.25 + 0.1) as f32;
+                sample_index = sample_index.wrapping_add(1);
+
+                let s_l = (phase_l.sin() as f32) * envelope;
+                let s_r = (phase_r.sin() as f32) * envelope;
+                phase_l = (phase_l + phase_inc_l) % (2.0 * std::f64::consts::PI);
+                phase_r = (phase_r + phase_inc_r) % (2.0 * std::f64::consts::PI);
+
+                let i32_l = (s_l * 2_147_483_647.0) as i32;
+                let i32_r = (s_r * 2_147_483_647.0) as i32;
+
+                while producer.push(i32_l).is_err() {
+                    if control.stop_requested.load(Ordering::Acquire)
+                        || control.unplug_halted.load(Ordering::Acquire)
+                    {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(4));
+                }
+
+                if channels >= 2 {
+                    while producer.push(i32_r).is_err() {
+                        if control.stop_requested.load(Ordering::Acquire)
+                            || control.unplug_halted.load(Ordering::Acquire)
+                        {
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(4));
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -6,7 +6,8 @@ use tauri::ipc::Channel;
 use tauri::State;
 use tokio::sync::oneshot;
 
-use crate::audio::{alsa_output, dbus_reserve, pipewire_helper};
+use crate::audio::alsa_output::{self, StreamFormat};
+use crate::audio::{dbus_reserve, pipewire_helper};
 use crate::models::{
     AddonCatalogItem, AddonPermissions, AudioDeviceInfo, AudioMode, CredentialCheckResult,
     CredentialStatus, DacProbeReport, DsdCapability, GeminiApiKeyStatus, GeneratedPipeWireConfigs,
@@ -84,11 +85,39 @@ pub async fn select_audio_device(
         }
     }
 
-    guard.active_device_id = Some(alsa_id);
+    guard.active_device_id = Some(alsa_id.clone());
     guard.exclusive_mode = exclusive;
     guard.bypass_laptop = bypass_laptop;
     guard.active_error = None;
     state.audio_engine.clear_unplug_halt();
+
+    // If currently playing, seamlessly transfer audio stream to the newly selected device
+    if guard.playback.status == PlaybackStatus::Playing {
+        if let Some(track) = guard.current_track().cloned() {
+            let target_dev = guard.devices.iter().find(|d| d.alsa_id == alsa_id).cloned();
+            if let Some(dev) = target_dev {
+                let target_rate = track.sample_rate_hz;
+                let rate = if dev.supported_sample_rates.contains(&target_rate) {
+                    target_rate
+                } else {
+                    dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                };
+                let format = StreamFormat::Pcm {
+                    sample_rate_hz: rate,
+                    bit_depth: track.bit_depth,
+                    channels: 2,
+                };
+                let _ = state.audio_engine.open_stream(
+                    &alsa_id,
+                    format,
+                    exclusive,
+                    131072,
+                    Some(track.path),
+                );
+                state.audio_engine.set_playing(true);
+            }
+        }
+    }
 
     let sp = guard.build_signal_path();
     guard.emit_hardware_event(HardwareEvent::SignalPathChanged {
@@ -277,6 +306,30 @@ pub async fn transport_command(
             }
             guard.playback.status = PlaybackStatus::Playing;
             state.audio_engine.set_playing(true);
+
+            // Open stream to active DAC device if configured
+            let current_trk = guard.current_track().cloned();
+            let current_dev = guard.active_device().cloned();
+            if let (Some(track), Some(dev)) = (current_trk, current_dev) {
+                let target_rate = track.sample_rate_hz;
+                let rate = if dev.supported_sample_rates.contains(&target_rate) {
+                    target_rate
+                } else {
+                    dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                };
+                let format = StreamFormat::Pcm {
+                    sample_rate_hz: rate,
+                    bit_depth: track.bit_depth,
+                    channels: 2,
+                };
+                let _ = state.audio_engine.open_stream(
+                    &dev.alsa_id,
+                    format,
+                    guard.exclusive_mode,
+                    131072,
+                    Some(track.path),
+                );
+            }
         }
         TransportCommand::Pause => {
             guard.playback.status = PlaybackStatus::Paused;
@@ -288,6 +341,7 @@ pub async fn transport_command(
         }
         TransportCommand::Next => {
             if !guard.tracks.is_empty() {
+                let was_playing = guard.playback.status == PlaybackStatus::Playing;
                 let idx = guard
                     .tracks
                     .iter()
@@ -303,10 +357,35 @@ pub async fn transport_command(
                 let (locked, _) = guard.compute_volume_lock();
                 guard.playback.is_volume_locked = locked;
                 state.audio_engine.set_volume_locked(locked);
+
+                if was_playing {
+                    if let Some(dev) = guard.active_device().cloned() {
+                        let target_rate = next_track.sample_rate_hz;
+                        let rate = if dev.supported_sample_rates.contains(&target_rate) {
+                            target_rate
+                        } else {
+                            dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                        };
+                        let format = StreamFormat::Pcm {
+                            sample_rate_hz: rate,
+                            bit_depth: next_track.bit_depth,
+                            channels: 2,
+                        };
+                        let _ = state.audio_engine.open_stream(
+                            &dev.alsa_id,
+                            format,
+                            guard.exclusive_mode,
+                            131072,
+                            Some(next_track.path),
+                        );
+                        state.audio_engine.set_playing(true);
+                    }
+                }
             }
         }
         TransportCommand::Prev => {
             if !guard.tracks.is_empty() {
+                let was_playing = guard.playback.status == PlaybackStatus::Playing;
                 let idx = guard
                     .tracks
                     .iter()
@@ -322,6 +401,30 @@ pub async fn transport_command(
                 let (locked, _) = guard.compute_volume_lock();
                 guard.playback.is_volume_locked = locked;
                 state.audio_engine.set_volume_locked(locked);
+
+                if was_playing {
+                    if let Some(dev) = guard.active_device().cloned() {
+                        let target_rate = prev_track.sample_rate_hz;
+                        let rate = if dev.supported_sample_rates.contains(&target_rate) {
+                            target_rate
+                        } else {
+                            dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                        };
+                        let format = StreamFormat::Pcm {
+                            sample_rate_hz: rate,
+                            bit_depth: prev_track.bit_depth,
+                            channels: 2,
+                        };
+                        let _ = state.audio_engine.open_stream(
+                            &dev.alsa_id,
+                            format,
+                            guard.exclusive_mode,
+                            131072,
+                            Some(prev_track.path),
+                        );
+                        state.audio_engine.set_playing(true);
+                    }
+                }
             }
         }
         TransportCommand::SetVolume { volume_normalized } => {

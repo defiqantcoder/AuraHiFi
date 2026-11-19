@@ -258,12 +258,34 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
     if (hardwareUnsub) {
       hardwareUnsub();
     }
-    hardwareUnsub = audioBridge.subscribeHardwareEvents((event) => {
+    hardwareUnsub = audioBridge.subscribeHardwareEvents(async (event) => {
       set((state) => ({
         hardwareEventLog: [event, ...state.hardwareEventLog].slice(0, 40),
         activeHardwareNotice:
           event.type === 'SignalPathChanged' ? state.activeHardwareNotice : event,
       }));
+
+      if (event.type === 'DacConnected') {
+        const [devices, currentSignalPath] = await Promise.all([
+          audioBridge.listAudioDevices(),
+          audioBridge.getSignalPath(),
+        ]);
+        set({ devices, signalPath: currentSignalPath });
+
+        if (get().autoSwitchExternalDacPolicy) {
+          await get().selectAudioDevice(event.alsaId);
+        }
+      } else if (event.type === 'DacDisconnectedPaused') {
+        const [devices, playback, currentSignalPath] = await Promise.all([
+          audioBridge.listAudioDevices(),
+          audioBridge.getPlaybackState(),
+          audioBridge.getSignalPath(),
+        ]);
+        set({ devices, playback, signalPath: currentSignalPath });
+      } else if (event.type === 'SignalPathChanged') {
+        const currentSignalPath = await audioBridge.getSignalPath();
+        set({ signalPath: currentSignalPath });
+      }
     });
 
     if (scanProgressUnsub) {

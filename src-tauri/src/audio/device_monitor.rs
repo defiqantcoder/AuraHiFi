@@ -363,18 +363,21 @@ pub fn spawn_udev_monitor(app_state: AppState) {
             };
 
             loop {
-                let mut had_event = false;
+                let mut has_add = false;
+                let mut has_remove = false;
                 for event in socket.iter() {
-                    had_event = true;
                     let action = event
                         .action()
                         .and_then(|a| a.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if action != "add" && action != "remove" {
-                        continue;
+                        .unwrap_or("");
+                    if action == "add" {
+                        has_add = true;
+                    } else if action == "remove" {
+                        has_remove = true;
                     }
+                }
 
+                if has_add || has_remove {
                     // Give kernel ALSA /proc/asound a brief window to settle after udev notification
                     thread::sleep(Duration::from_millis(120));
                     let live_devices = enumerate_audio_devices();
@@ -383,7 +386,7 @@ pub fn spawn_udev_monitor(app_state: AppState) {
                         let mut guard = app_state.inner.write().await;
 
                         // Check if the currently active USB DAC vanished
-                        if action == "remove" {
+                        if has_remove {
                             if let Some(active_id) = guard.active_device_id.clone() {
                                 let still_present =
                                     live_devices.iter().any(|d| d.alsa_id == active_id);
@@ -424,11 +427,12 @@ pub fn spawn_udev_monitor(app_state: AppState) {
                                     );
                                 }
                             }
-                        } else if action == "add" {
+                        }
+
+                        if has_add {
                             for dev in &live_devices {
-                                if dev.transport_type == TransportType::Usb
-                                    && !guard.devices.iter().any(|d| d.alsa_id == dev.alsa_id)
-                                {
+                                let is_new = !guard.devices.iter().any(|d| d.alsa_id == dev.alsa_id);
+                                if dev.transport_type == TransportType::Usb && is_new {
                                     guard.emit_hardware_event(HardwareEvent::DacConnected {
                                         timestamp_ms: now_ms(),
                                         alsa_id: dev.alsa_id.clone(),
@@ -438,6 +442,44 @@ pub fn spawn_udev_monitor(app_state: AppState) {
                                             dev.display_name, dev.alsa_id
                                         ),
                                     });
+
+                                    // Auto-bind to dynamically connected USB DAC if current active is internal or halted
+                                    let current_is_internal = guard
+                                        .active_device()
+                                        .map(|d| d.is_isolated_internal)
+                                        .unwrap_or(true);
+                                    let is_halted = guard.active_error.as_ref().map(|e| e.code)
+                                        == Some(SignalPathErrorCode::DacHotUnplugged);
+
+                                    if guard.active_device_id.is_none() || current_is_internal || is_halted {
+                                        guard.active_device_id = Some(dev.alsa_id.clone());
+                                        guard.active_error = None;
+                                        app_state.audio_engine.clear_unplug_halt();
+                                        let sp = guard.build_signal_path();
+                                        guard.emit_hardware_event(HardwareEvent::SignalPathChanged {
+                                            timestamp_ms: now_ms(),
+                                            integrity: sp.integrity,
+                                            summary: sp.summary_label.clone(),
+                                        });
+                                    }
+                                }
+                            }
+
+                            // If active device was halted due to unplug and is now reconnected, clear halt & error
+                            if let Some(active_id) = guard.active_device_id.clone() {
+                                let now_present = live_devices.iter().any(|d| d.alsa_id == active_id);
+                                if now_present
+                                    && guard.active_error.as_ref().map(|e| e.code)
+                                        == Some(SignalPathErrorCode::DacHotUnplugged)
+                                {
+                                    guard.active_error = None;
+                                    app_state.audio_engine.clear_unplug_halt();
+                                    let sp = guard.build_signal_path();
+                                    guard.emit_hardware_event(HardwareEvent::SignalPathChanged {
+                                        timestamp_ms: now_ms(),
+                                        integrity: sp.integrity,
+                                        summary: sp.summary_label.clone(),
+                                    });
                                 }
                             }
                         }
@@ -446,9 +488,7 @@ pub fn spawn_udev_monitor(app_state: AppState) {
                             guard.devices = live_devices;
                         }
                     });
-                }
-
-                if !had_event {
+                } else {
                     thread::sleep(Duration::from_millis(250));
                 }
             }
