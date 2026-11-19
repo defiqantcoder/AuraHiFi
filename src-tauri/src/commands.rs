@@ -1,12 +1,11 @@
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Duration;
-use serde::Deserialize;
 
 use tauri::ipc::Channel;
 use tauri::State;
 use tokio::sync::oneshot;
 
-use std::sync::Arc;
 use crate::audio::{alsa_output, dbus_reserve, pipewire_helper};
 use crate::models::{
     AddonCatalogItem, AddonPermissions, AudioDeviceInfo, AudioMode, CredentialCheckResult,
@@ -19,9 +18,12 @@ use crate::models::{
     TransportCommand, TransportType,
 };
 use crate::state::{now_ms, synthesize_telemetry_frame, AppState, InnerState};
+use std::sync::Arc;
 
 #[tauri::command]
-pub async fn list_audio_devices(state: State<'_, AppState>) -> Result<Vec<AudioDeviceInfo>, String> {
+pub async fn list_audio_devices(
+    state: State<'_, AppState>,
+) -> Result<Vec<AudioDeviceInfo>, String> {
     let guard = state.inner.read().await;
     Ok(guard.devices.clone())
 }
@@ -410,7 +412,9 @@ pub async fn complete_onboarding(
 }
 
 #[tauri::command]
-pub async fn list_library_folders(state: State<'_, AppState>) -> Result<Vec<LibraryFolder>, String> {
+pub async fn list_library_folders(
+    state: State<'_, AppState>,
+) -> Result<Vec<LibraryFolder>, String> {
     let db_opt = state.db.lock().unwrap().clone();
     if let Some(ref db) = db_opt {
         db.list_library_folders().map_err(|e| e.to_string())
@@ -429,7 +433,8 @@ pub async fn add_library_folder(
     let watch = auto_watch.unwrap_or(true);
     let db_opt = state.db.lock().unwrap().clone();
     let folder = if let Some(ref db) = db_opt {
-        db.add_library_folder(&path, watch).map_err(|e| e.to_string())?
+        db.add_library_folder(&path, watch)
+            .map_err(|e| e.to_string())?
     } else {
         LibraryFolder {
             id: format!("folder-{}", crate::state::hash_path(&path)),
@@ -452,10 +457,7 @@ pub async fn add_library_folder(
 }
 
 #[tauri::command]
-pub async fn remove_library_folder(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn remove_library_folder(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db_opt = state.db.lock().unwrap().clone();
     if let Some(ref db) = db_opt {
         db.remove_library_folder(&id).map_err(|e| e.to_string())?;
@@ -478,7 +480,8 @@ pub async fn set_library_folder_watch(
 ) -> Result<(), String> {
     let db_opt = state.db.lock().unwrap().clone();
     if let Some(ref db) = db_opt {
-        db.set_library_folder_watch(&id, auto_watch).map_err(|e| e.to_string())?;
+        db.set_library_folder_watch(&id, auto_watch)
+            .map_err(|e| e.to_string())?;
     }
     let mut guard = state.inner.write().await;
     if let Some(f) = guard.library_folders.iter_mut().find(|f| f.id == id) {
@@ -523,7 +526,9 @@ async fn run_scan_folder(
             let state_prog = state_for_prog.clone();
             tokio::spawn(async move {
                 let mut guard = state_prog.write().await;
-                guard.scan_channels.retain(|_, ch| ch.send(event.clone()).is_ok());
+                guard
+                    .scan_channels
+                    .retain(|_, ch| ch.send(event.clone()).is_ok());
             });
         })
     };
@@ -540,7 +545,8 @@ async fn run_scan_folder(
             if guard.playback.current_track_id.is_empty() && !guard.tracks.is_empty() {
                 guard.playback.current_track_id = guard.tracks[0].id.clone();
                 guard.playback.duration_ms = guard.tracks[0].duration_ms;
-                guard.playback.queue_track_ids = guard.tracks.iter().map(|t| t.id.clone()).collect();
+                guard.playback.queue_track_ids =
+                    guard.tracks.iter().map(|t| t.id.clone()).collect();
             }
         }
     }
@@ -636,7 +642,11 @@ pub async fn run_addon_action(
     payload_json: String,
 ) -> Result<String, String> {
     if addon_id == "metadata-enricher" && action == "test_musicbrainz_503" {
-        if let Ok(res) = state.addon_manager.run_action(&addon_id, &action, &payload_json).await {
+        if let Ok(res) = state
+            .addon_manager
+            .run_action(&addon_id, &action, &payload_json)
+            .await
+        {
             let _ = simulate_musicbrainz_503_backoff(state.clone()).await;
             return Ok(res);
         }
@@ -645,7 +655,11 @@ pub async fn run_addon_action(
     }
 
     // Execute through sandboxed Extism WebAssembly runtime
-    match state.addon_manager.run_action(&addon_id, &action, &payload_json).await {
+    match state
+        .addon_manager
+        .run_action(&addon_id, &action, &payload_json)
+        .await
+    {
         Ok(res) => Ok(res),
         Err(_) => {
             // Safe fallback
@@ -683,7 +697,11 @@ pub async fn generate_smart_playlist(
 
     if let Ok(res_str) = state
         .addon_manager
-        .run_action("smart-playlists", "generate_playlist", &wasm_req.to_string())
+        .run_action(
+            "smart-playlists",
+            "generate_playlist",
+            &wasm_req.to_string(),
+        )
         .await
     {
         #[derive(Deserialize)]
@@ -1381,7 +1399,9 @@ pub async fn enrich_track_metadata(
     drop(guard);
 
     if let Some(ref t) = track {
-        state.addon_manager.update_memory_tracks(&[t.clone()]);
+        state
+            .addon_manager
+            .update_memory_tracks(std::slice::from_ref(t));
     }
 
     let wasm_req = serde_json::json!({
@@ -1416,10 +1436,20 @@ pub async fn enrich_track_metadata(
     Ok(MetadataEnrichResult {
         track_id,
         addon_id: "metadata-enricher".into(),
-        status: if track.is_some() { "matched".into() } else { "not_found".into() },
-        acoust_id_confidence_pct: if track.is_some() && options.use_acoust_id { 98 } else { 0 },
+        status: if track.is_some() {
+            "matched".into()
+        } else {
+            "not_found".into()
+        },
+        acoust_id_confidence_pct: if track.is_some() && options.use_acoust_id {
+            98
+        } else {
+            0
+        },
         mbid_recording: track.as_ref().map(|t| t.mbid_recording.clone()),
-        mbid_release: track.as_ref().map(|_| "4f39a1c8-80e2-45e0-a611-29b9f1080c41".into()),
+        mbid_release: track
+            .as_ref()
+            .map(|_| "4f39a1c8-80e2-45e0-a611-29b9f1080c41".into()),
         proposed_fields,
         rate_limit_note: if options.respect_rate_limits {
             "MusicBrainz token bucket enforced (<= 1 req/s, 1,050 ms spacing).".into()
@@ -1450,7 +1480,12 @@ pub async fn apply_approved_tag_diff(
 
     // Write tags via Lofty and update SQLite
     if path.exists() {
-        let _ = crate::addons::apply_approved_tag_diff(db_opt.as_ref(), &path, &track_id, &approved_fields);
+        let _ = crate::addons::apply_approved_tag_diff(
+            db_opt.as_ref(),
+            &path,
+            &track_id,
+            &approved_fields,
+        );
     } else if let Some(db) = db_opt.as_ref() {
         let _ = db.update_track_tags(&track_id, &approved_fields);
     }

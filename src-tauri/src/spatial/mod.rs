@@ -297,8 +297,7 @@ impl SpatialDspPipeline {
         }
 
         // Fast path: steady-state Bit-Perfect mode touches zero bits.
-        if !self.switcher.is_transitioning()
-            && self.switcher.active_mode() == AudioMode::BitPerfect
+        if !self.switcher.is_transitioning() && self.switcher.active_mode() == AudioMode::BitPerfect
         {
             return;
         }

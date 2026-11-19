@@ -5,5 +5,5 @@ pub mod scanner;
 pub mod watcher;
 
 pub use db::LibraryDb;
-pub use scanner::{scan_folder, extract_audio_metadata, ScannerStats};
+pub use scanner::{extract_audio_metadata, scan_folder, ScannerStats};
 pub use watcher::LibraryWatcher;

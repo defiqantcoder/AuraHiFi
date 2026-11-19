@@ -11,10 +11,10 @@ use crate::audio::dbus_reserve::DbusDeviceReservation;
 use crate::audio::device_monitor;
 use crate::models::{
     AddonCatalogItem, AddonPermissions, AudioDeviceInfo, AudioMode, DsdCapability,
-    GeminiApiKeyStatus, HardwareEvent, LibraryFolder, PeqBand, PeqFilterType, PlaybackState, PlaybackStatus,
-    ReservationStatus, SampleRateSwitchLock, ScanProgressEvent, SignalPathError, SignalPathErrorCode,
-    SignalPathIntegrity, SignalPathStage, SignalPathState, SignalStageStatus, SpatialConfig,
-    TelemetryFrame, TrackSummary, TransportType,
+    GeminiApiKeyStatus, HardwareEvent, LibraryFolder, PeqBand, PeqFilterType, PlaybackState,
+    PlaybackStatus, ReservationStatus, SampleRateSwitchLock, ScanProgressEvent, SignalPathError,
+    SignalPathErrorCode, SignalPathIntegrity, SignalPathStage, SignalPathState, SignalStageStatus,
+    SpatialConfig, TelemetryFrame, TrackSummary, TransportType,
 };
 use crate::spatial::SpatialDspPipeline;
 
@@ -256,16 +256,86 @@ impl InnerState {
         ];
 
         let peq_bands = vec![
-            PeqBand { id: "b1".into(), frequency_hz: 32.0, gain_db: 2.5, q_factor: 0.71, filter_type: PeqFilterType::LowShelf, enabled: true },
-            PeqBand { id: "b2".into(), frequency_hz: 64.0, gain_db: 1.4, q_factor: 1.2, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b3".into(), frequency_hz: 125.0, gain_db: -0.8, q_factor: 1.4, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b4".into(), frequency_hz: 250.0, gain_db: -1.2, q_factor: 1.6, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b5".into(), frequency_hz: 500.0, gain_db: 0.0, q_factor: 1.41, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b6".into(), frequency_hz: 1000.0, gain_db: 0.4, q_factor: 1.8, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b7".into(), frequency_hz: 2000.0, gain_db: 1.1, q_factor: 1.5, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b8".into(), frequency_hz: 4000.0, gain_db: -1.8, q_factor: 2.2, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b9".into(), frequency_hz: 8000.0, gain_db: -0.9, q_factor: 2.5, filter_type: PeqFilterType::Peaking, enabled: true },
-            PeqBand { id: "b10".into(), frequency_hz: 16000.0, gain_db: 1.2, q_factor: 0.71, filter_type: PeqFilterType::HighShelf, enabled: true },
+            PeqBand {
+                id: "b1".into(),
+                frequency_hz: 32.0,
+                gain_db: 2.5,
+                q_factor: 0.71,
+                filter_type: PeqFilterType::LowShelf,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b2".into(),
+                frequency_hz: 64.0,
+                gain_db: 1.4,
+                q_factor: 1.2,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b3".into(),
+                frequency_hz: 125.0,
+                gain_db: -0.8,
+                q_factor: 1.4,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b4".into(),
+                frequency_hz: 250.0,
+                gain_db: -1.2,
+                q_factor: 1.6,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b5".into(),
+                frequency_hz: 500.0,
+                gain_db: 0.0,
+                q_factor: 1.41,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b6".into(),
+                frequency_hz: 1000.0,
+                gain_db: 0.4,
+                q_factor: 1.8,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b7".into(),
+                frequency_hz: 2000.0,
+                gain_db: 1.1,
+                q_factor: 1.5,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b8".into(),
+                frequency_hz: 4000.0,
+                gain_db: -1.8,
+                q_factor: 2.2,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b9".into(),
+                frequency_hz: 8000.0,
+                gain_db: -0.9,
+                q_factor: 2.5,
+                filter_type: PeqFilterType::Peaking,
+                enabled: true,
+            },
+            PeqBand {
+                id: "b10".into(),
+                frequency_hz: 16000.0,
+                gain_db: 1.2,
+                q_factor: 0.71,
+                filter_type: PeqFilterType::HighShelf,
+                enabled: true,
+            },
         ];
 
         let spatial_config = SpatialConfig {
@@ -322,14 +392,13 @@ impl InnerState {
         };
 
         let sample_rate = tracks.first().map(|t| t.sample_rate_hz).unwrap_or(48000);
-        let replay_gain = tracks.first().map(|t| t.replay_gain_track_db).unwrap_or(0.0);
+        let replay_gain = tracks
+            .first()
+            .map(|t| t.replay_gain_track_db)
+            .unwrap_or(0.0);
         let true_peak = tracks.first().map(|t| t.true_peak_dbtp).unwrap_or(0.0);
         let mut spatial_dsp = SpatialDspPipeline::new(sample_rate);
-        let _ = spatial_dsp.apply_config(
-            &spatial_config,
-            replay_gain,
-            true_peak,
-        );
+        let _ = spatial_dsp.apply_config(&spatial_config, replay_gain, true_peak);
 
         Self {
             active_device_id: devices.first().map(|d| d.alsa_id.clone()),
@@ -395,12 +464,7 @@ impl InnerState {
         if self.mode == AudioMode::BitPerfect {
             if track.map(|t| t.is_dsd).unwrap_or(false)
                 && dev
-                    .map(|d| {
-                        matches!(
-                            d.dsd_capability,
-                            DsdCapability::Native | DsdCapability::Dop
-                        )
-                    })
+                    .map(|d| matches!(d.dsd_capability, DsdCapability::Native | DsdCapability::Dop))
                     .unwrap_or(false)
             {
                 return (
@@ -480,7 +544,10 @@ impl InnerState {
                     .as_ref()
                     .map(|c| format!(" · CUE #{c}"))
                     .unwrap_or_default();
-                format!("{} · {} / {}-bit{}", t.codec, rate_str, t.bit_depth, cue_suffix)
+                format!(
+                    "{} · {} / {}-bit{}",
+                    t.codec, rate_str, t.bit_depth, cue_suffix
+                )
             }
             None => "No Track Loaded".into(),
         };
@@ -989,6 +1056,12 @@ impl InnerState {
     }
 }
 
+impl Default for InnerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub inner: Arc<RwLock<InnerState>>,
@@ -1012,6 +1085,12 @@ impl AppState {
     pub fn next_subscription_id(&self, prefix: &str) -> String {
         let id = self.next_sub_id.fetch_add(1, Ordering::Relaxed);
         format!("{prefix}-{id}")
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

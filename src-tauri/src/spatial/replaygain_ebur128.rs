@@ -66,7 +66,10 @@ impl EbuR128LoudnessScanner {
             Mode::I | Mode::M | Mode::S | Mode::TRUE_PEAK | Mode::SAMPLE_PEAK,
         )
         .map_err(|e| format!("Failed to initialize EbuR128 meter: {e}"))?;
-        Ok(Self { meter, channels: ch })
+        Ok(Self {
+            meter,
+            channels: ch,
+        })
     }
 
     pub fn reset(&mut self) {
@@ -209,7 +212,8 @@ impl ReplayGainLimiterStage {
         let mut linear = 10.0_f64.powf(target_db / 20.0);
 
         // ReplayGain 2.0 clipping prevention: prevent positive ReplayGain boost from exceeding -1.0 dBTP
-        if self.limiter_enabled && linear * self.track_true_peak_linear > TRUE_PEAK_CEILING_LINEAR as f64
+        if self.limiter_enabled
+            && linear * self.track_true_peak_linear > TRUE_PEAK_CEILING_LINEAR as f64
         {
             linear = (TRUE_PEAK_CEILING_LINEAR as f64) / self.track_true_peak_linear;
         }

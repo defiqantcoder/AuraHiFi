@@ -592,4 +592,3 @@ pub struct SmartPlaylistResult {
     pub engine_used: String,
     pub explanation: String,
 }
-

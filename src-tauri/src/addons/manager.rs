@@ -1,9 +1,9 @@
 //! Extism host manager, sandbox orchestrator, and lifecycle manager for AuraHiFi add-ons.
 
+use extism::{Manifest as ExtismManifest, PluginBuilder, Wasm};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use extism::{Manifest as ExtismManifest, PluginBuilder, Wasm};
 use tokio::sync::RwLock;
 
 use crate::library::db::LibraryDb;
@@ -73,8 +73,8 @@ impl AddonManager {
             return Err(format!("No .wasm binary found in {}", dir.display()));
         }
 
-        let wasm_bytes = std::fs::read(&wasm_path)
-            .map_err(|e| format!("Failed to read wasm binary: {e}"))?;
+        let wasm_bytes =
+            std::fs::read(&wasm_path).map_err(|e| format!("Failed to read wasm binary: {e}"))?;
 
         // Cryptographic verification
         let verification = verify_addon(&manifest, &wasm_bytes, developer_mode)?;
@@ -101,7 +101,9 @@ impl AddonManager {
                 allowed_hosts: manifest.allowed_hosts.clone(),
                 library_read: true,
                 library_write_tags: manifest.host_functions.contains(&"propose_tag_diff".into()),
-                audio_buffer_read_only: manifest.host_functions.contains(&"compute_chromaprint_fp".into()),
+                audio_buffer_read_only: manifest
+                    .host_functions
+                    .contains(&"compute_chromaprint_fp".into()),
                 wasi_enabled: false,
                 host_functions: manifest.host_functions.clone(),
                 max_memory_mb: manifest.max_memory_mb,
@@ -185,7 +187,9 @@ impl AddonManager {
                         allowed_hosts: m.allowed_hosts.clone(),
                         library_read: true,
                         library_write_tags: m.host_functions.contains(&"propose_tag_diff".into()),
-                        audio_buffer_read_only: m.host_functions.contains(&"compute_chromaprint_fp".into()),
+                        audio_buffer_read_only: m
+                            .host_functions
+                            .contains(&"compute_chromaprint_fp".into()),
                         wasi_enabled: false,
                         host_functions: m.host_functions.clone(),
                         max_memory_mb: m.max_memory_mb,
@@ -257,7 +261,7 @@ impl AddonManager {
         if plugin.function_exists(action) {
             let res: String = plugin
                 .call(action, payload_json)
-                .map_err(|e| format!("Sandbox call '{action}' error: {e}"))?;
+                .map_err(|e| format!("Sandbox call '{action}' error: {e:#}"))?;
             return Ok(res);
         }
 
@@ -269,7 +273,7 @@ impl AddonManager {
             });
             let res: String = plugin
                 .call("run_action", action_req.to_string())
-                .map_err(|e| format!("Sandbox call 'run_action' error: {e}"))?;
+                .map_err(|e| format!("Sandbox call 'run_action' error: {e:#}"))?;
             return Ok(res);
         }
 

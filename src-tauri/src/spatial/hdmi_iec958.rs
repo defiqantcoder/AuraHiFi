@@ -99,7 +99,10 @@ impl HdmiBitstreamCodec {
 /// Builds the ALSA HDMI passthrough device identifier with non-audio IEC958 status bits
 /// (`hdmi:CARD=<ID>,DEV=<N>,AES0=0x06,AES1=0x82,AES2=0x00,AES3=0x0e`) so the connected AVR
 /// immediately switches out of LPCM mode into native Dolby Atmos / TrueHD / DTS-HD decoding.
-pub fn format_alsa_hdmi_iec958_device(base_alsa_id: &str, codec: HdmiBitstreamCodec) -> Result<String, String> {
+pub fn format_alsa_hdmi_iec958_device(
+    base_alsa_id: &str,
+    codec: HdmiBitstreamCodec,
+) -> Result<String, String> {
     let trimmed = base_alsa_id.trim();
     if !trimmed.starts_with("hdmi:CARD=") {
         return Err(format!(
@@ -182,10 +185,11 @@ mod tests {
                 .expect("format AC3 HDMI device");
         assert!(dev_ac3.ends_with("AES3=0x02"));
 
-        assert!(
-            format_alsa_hdmi_iec958_device("hw:CARD=Bifrost2,DEV=0", HdmiBitstreamCodec::TrueHd)
-                .is_err()
-        );
+        assert!(format_alsa_hdmi_iec958_device(
+            "hw:CARD=Bifrost2,DEV=0",
+            HdmiBitstreamCodec::TrueHd
+        )
+        .is_err());
     }
 
     #[test]

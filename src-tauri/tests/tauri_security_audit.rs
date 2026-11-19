@@ -6,9 +6,9 @@
 //! 3. Architectural Boundary Linter: no raw @tauri-apps imports in views or components.
 //! 4. SignalPathState Honesty Invariants: Bit-Perfect badge is false if volume != 0 dB or DSP active.
 
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde_json::Value;
 
 fn get_tauri_conf_path() -> PathBuf {
     let candidates = [
@@ -41,11 +41,7 @@ fn get_capabilities_dir() -> PathBuf {
 }
 
 fn get_frontend_src_dir() -> PathBuf {
-    let candidates = [
-        "src",
-        "../src",
-        "../../src",
-    ];
+    let candidates = ["src", "../src", "../../src"];
     for c in candidates {
         let p = PathBuf::from(c);
         if p.exists() && p.join("App.tsx").exists() {
@@ -75,17 +71,20 @@ fn test_capabilities_least_privilege() {
                 .unwrap_or_else(|e| panic!("Failed to parse JSON in {}: {e}", path.display()));
 
             // Verify window scoping
-            let windows = json.get("windows")
+            let windows = json
+                .get("windows")
                 .and_then(|w| w.as_array())
                 .expect("Capability must declare an explicit 'windows' array");
             assert_eq!(
                 windows,
                 &vec![Value::String("main".into())],
-                "Capabilities must be strictly scoped to 'main' window in {}", path.display()
+                "Capabilities must be strictly scoped to 'main' window in {}",
+                path.display()
             );
 
             // Verify permissions list
-            let permissions = json.get("permissions")
+            let permissions = json
+                .get("permissions")
                 .and_then(|p| p.as_array())
                 .expect("Capability must declare an explicit 'permissions' array");
 
@@ -95,15 +94,18 @@ fn test_capabilities_least_privilege() {
                 // Strictly ban dangerous capability strings
                 assert!(
                     !perm_str.starts_with("shell:"),
-                    "Dangerous shell permission '{perm_str}' is strictly forbidden in {}", path.display()
+                    "Dangerous shell permission '{perm_str}' is strictly forbidden in {}",
+                    path.display()
                 );
                 assert!(
                     !perm_str.contains("**"),
-                    "Wildcard filesystem permission '{perm_str}' is strictly forbidden in {}", path.display()
+                    "Wildcard filesystem permission '{perm_str}' is strictly forbidden in {}",
+                    path.display()
                 );
                 assert!(
                     !perm_str.contains("$HOME"),
-                    "Broad home directory permission '{perm_str}' is forbidden in {}", path.display()
+                    "Broad home directory permission '{perm_str}' is forbidden in {}",
+                    path.display()
                 );
                 assert!(
                     !perm_str.starts_with("http:"),
@@ -116,13 +118,17 @@ fn test_capabilities_least_privilege() {
                     || perm_str == "keyring-store:default";
                 assert!(
                     allowed,
-                    "Unrecognized or unapproved capability permission '{perm_str}' in {}", path.display()
+                    "Unrecognized or unapproved capability permission '{perm_str}' in {}",
+                    path.display()
                 );
             }
         }
     }
 
-    assert!(audited_files > 0, "At least one capability file must be audited");
+    assert!(
+        audited_files > 0,
+        "At least one capability file must be audited"
+    );
 }
 
 // ============================================================================
@@ -250,7 +256,10 @@ fn test_signal_path_bitperfect_honesty_invariants() {
         resampled: false,
         eq_active: false,
     };
-    assert!(state_perfect.is_bit_perfect(), "Bit-perfect state must evaluate to true");
+    assert!(
+        state_perfect.is_bit_perfect(),
+        "Bit-perfect state must evaluate to true"
+    );
 
     // 2. Volume attenuation violates bit-perfect
     let state_attenuated = SignalIntegrityEvaluation {
@@ -259,7 +268,10 @@ fn test_signal_path_bitperfect_honesty_invariants() {
         resampled: false,
         eq_active: false,
     };
-    assert!(!state_attenuated.is_bit_perfect(), "Volume != 0.0 dB must invalidate BIT-PERFECT badge");
+    assert!(
+        !state_attenuated.is_bit_perfect(),
+        "Volume != 0.0 dB must invalidate BIT-PERFECT badge"
+    );
 
     // 3. DSP / Spatial active violates bit-perfect
     let state_spatial = SignalIntegrityEvaluation {
@@ -268,7 +280,10 @@ fn test_signal_path_bitperfect_honesty_invariants() {
         resampled: false,
         eq_active: false,
     };
-    assert!(!state_spatial.is_bit_perfect(), "Active DSP must invalidate BIT-PERFECT badge");
+    assert!(
+        !state_spatial.is_bit_perfect(),
+        "Active DSP must invalidate BIT-PERFECT badge"
+    );
 
     // 4. Resampling active violates bit-perfect
     let state_resampled = SignalIntegrityEvaluation {
@@ -277,7 +292,10 @@ fn test_signal_path_bitperfect_honesty_invariants() {
         resampled: true,
         eq_active: false,
     };
-    assert!(!state_resampled.is_bit_perfect(), "Sample rate conversion must invalidate BIT-PERFECT badge");
+    assert!(
+        !state_resampled.is_bit_perfect(),
+        "Sample rate conversion must invalidate BIT-PERFECT badge"
+    );
 
     // 5. Parametric EQ active violates bit-perfect
     let state_eq = SignalIntegrityEvaluation {
@@ -286,5 +304,8 @@ fn test_signal_path_bitperfect_honesty_invariants() {
         resampled: false,
         eq_active: true,
     };
-    assert!(!state_eq.is_bit_perfect(), "Active Equalizer must invalidate BIT-PERFECT badge");
+    assert!(
+        !state_eq.is_bit_perfect(),
+        "Active Equalizer must invalidate BIT-PERFECT badge"
+    );
 }

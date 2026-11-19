@@ -468,12 +468,10 @@ mod tests {
             signal[i * 2] = s;
             signal[i * 2 + 1] = s;
         }
-        let input_rms: f32 =
-            (signal.iter().skip(128).map(|x| x * x).sum::<f32>() / 384.0).sqrt();
+        let input_rms: f32 = (signal.iter().skip(128).map(|x| x * x).sum::<f32>() / 384.0).sqrt();
 
         peq.process_interleaved_f32(&mut signal);
-        let output_rms: f32 =
-            (signal.iter().skip(128).map(|x| x * x).sum::<f32>() / 384.0).sqrt();
+        let output_rms: f32 = (signal.iter().skip(128).map(|x| x * x).sum::<f32>() / 384.0).sqrt();
 
         // +6 dB peaking filter at 1 kHz should approximately double RMS amplitude (~1.9x - 2.05x)
         let ratio = output_rms / input_rms;

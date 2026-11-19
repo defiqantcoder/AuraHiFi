@@ -1,13 +1,14 @@
 //! SQLite + sqlite-vec embedded library database engine for AuraHiFi.
 
+use crate::models::{LibraryFolder, TrackSummary};
+use rusqlite::{params, Connection, Result};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use rusqlite::{params, Connection, Result};
-use crate::models::{LibraryFolder, TrackSummary};
 
 /// Auto-extension registration for sqlite-vec
 static INIT_SQLITE_VEC: std::sync::Once = std::sync::Once::new();
 
+#[allow(clippy::missing_transmute_annotations)]
 pub fn ensure_sqlite_vec_registered() {
     INIT_SQLITE_VEC.call_once(|| {
         unsafe {
@@ -60,14 +61,17 @@ impl LibraryDb {
         let conn = self.conn.lock().unwrap();
 
         // High performance WAL mode
-        let _ = conn.execute_batch("
+        let _ = conn.execute_batch(
+            "
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
-        ");
+        ",
+        );
 
         // Schema tables
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             -- App State (Onboarding, Preferences, Mode)
             CREATE TABLE IF NOT EXISTS app_state (
                 key TEXT PRIMARY KEY,
@@ -123,10 +127,12 @@ impl LibraryDb {
             CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
             CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
             CREATE INDEX IF NOT EXISTS idx_tracks_path ON tracks(path);
-        ")?;
+        ",
+        )?;
 
         // FTS5 Virtual Table for full-text search
-        let _ = conn.execute_batch("
+        let _ = conn.execute_batch(
+            "
             CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
                 title,
                 artist,
@@ -152,10 +158,12 @@ impl LibraryDb {
                 INSERT INTO tracks_fts(rowid, title, artist, album, genre)
                 VALUES (new.rowid, new.title, new.artist, new.album, new.genre);
             END;
-        ");
+        ",
+        );
 
         // sqlite-vec Vector tables (vec0) for similarity search
-        let _ = conn.execute_batch("
+        let _ = conn.execute_batch(
+            "
             CREATE VIRTUAL TABLE IF NOT EXISTS track_bliss_vec USING vec0(
                 track_id text primary key,
                 vector float[6]
@@ -165,10 +173,12 @@ impl LibraryDb {
                 track_id text primary key,
                 vector float[512]
             );
-        ");
+        ",
+        );
 
         // Lyrics cache table
-        let _ = conn.execute_batch("
+        let _ = conn.execute_batch(
+            "
             CREATE TABLE IF NOT EXISTS lyrics_cache (
                 track_id TEXT PRIMARY KEY,
                 source TEXT NOT NULL,
@@ -186,7 +196,8 @@ impl LibraryDb {
                 wasm_path TEXT NOT NULL,
                 installed_at_ms INTEGER NOT NULL
             );
-        ");
+        ",
+        );
 
         Ok(())
     }
@@ -292,7 +303,8 @@ impl LibraryDb {
     // --- Tracks CRUD ---
     pub fn list_tracks(&self) -> Result<Vec<TrackSummary>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("
+        let mut stmt = conn.prepare(
+            "
             SELECT id, path, cue_parent_path, cue_start_ms, cue_end_ms, cue_index,
                    title, artist, album, album_artist, genre, year, duration_ms,
                    codec, sample_rate_hz, bit_depth, channels, channel_layout,
@@ -301,7 +313,8 @@ impl LibraryDb {
                    mbid_recording, artwork_theme, waveform_peaks
             FROM tracks
             ORDER BY artist ASC, album ASC, title ASC
-        ")?;
+        ",
+        )?;
 
         let rows = stmt.query_map([], |row| {
             let is_dsd_int: i32 = row.get(18)?;
@@ -354,9 +367,14 @@ impl LibraryDb {
         Ok(tracks)
     }
 
-    pub fn insert_or_update_track(&self, track: &TrackSummary, folder_id: Option<&str>) -> Result<()> {
+    pub fn insert_or_update_track(
+        &self,
+        track: &TrackSummary,
+        folder_id: Option<&str>,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        let waveform_json = serde_json::to_string(&track.waveform_peaks).unwrap_or_else(|_| "[]".to_string());
+        let waveform_json =
+            serde_json::to_string(&track.waveform_peaks).unwrap_or_else(|_| "[]".to_string());
         let is_dsd_int = if track.is_dsd { 1 } else { 0 };
         let is_atmos_int = if track.is_atmos { 1 } else { 0 };
 
@@ -449,7 +467,11 @@ impl LibraryDb {
         if existing_file_paths.is_empty() {
             return Ok(0);
         }
-        let placeholders = existing_file_paths.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let placeholders = existing_file_paths
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!("DELETE FROM tracks WHERE path NOT IN ({})", placeholders);
         let mut stmt = conn.prepare(&sql)?;
         let count = stmt.execute(rusqlite::params_from_iter(existing_file_paths))?;
@@ -458,10 +480,11 @@ impl LibraryDb {
 
     pub fn search_tracks_fts(&self, query_str: &str) -> Result<Vec<TrackSummary>> {
         let conn = self.conn.lock().unwrap();
-        let clean_query = query_str.replace('"', "").replace('\'', "");
+        let clean_query = query_str.replace(['"', '\''], "");
         let fts_query = format!("{}*", clean_query.trim());
 
-        let mut stmt = conn.prepare("
+        let mut stmt = conn.prepare(
+            "
             SELECT t.id, t.path, t.cue_parent_path, t.cue_start_ms, t.cue_end_ms, t.cue_index,
                    t.title, t.artist, t.album, t.album_artist, t.genre, t.year, t.duration_ms,
                    t.codec, t.sample_rate_hz, t.bit_depth, t.channels, t.channel_layout,
@@ -473,7 +496,8 @@ impl LibraryDb {
             WHERE tracks_fts MATCH ?1
             ORDER BY rank
             LIMIT 50
-        ")?;
+        ",
+        )?;
 
         let rows = stmt.query_map(params![fts_query], |row| {
             let is_dsd_int: i32 = row.get(18)?;
@@ -530,7 +554,10 @@ impl LibraryDb {
     pub fn insert_bliss_vector(&self, track_id: &str, vector: &[f32; 6]) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let vec_json = serde_json::to_string(&vector[..]).unwrap_or_else(|_| "[]".to_string());
-        let _ = conn.execute("DELETE FROM track_bliss_vec WHERE track_id = ?1", params![track_id]);
+        let _ = conn.execute(
+            "DELETE FROM track_bliss_vec WHERE track_id = ?1",
+            params![track_id],
+        );
         conn.execute(
             "INSERT INTO track_bliss_vec(track_id, vector) VALUES (?1, ?2)",
             params![track_id, vec_json],
@@ -541,7 +568,10 @@ impl LibraryDb {
     pub fn insert_clap_vector(&self, track_id: &str, vector: &[f32; 512]) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let vec_json = serde_json::to_string(&vector[..]).unwrap_or_else(|_| "[]".to_string());
-        let _ = conn.execute("DELETE FROM track_clap_vec WHERE track_id = ?1", params![track_id]);
+        let _ = conn.execute(
+            "DELETE FROM track_clap_vec WHERE track_id = ?1",
+            params![track_id],
+        );
         conn.execute(
             "INSERT INTO track_clap_vec(track_id, vector) VALUES (?1, ?2)",
             params![track_id, vec_json],
@@ -549,7 +579,12 @@ impl LibraryDb {
         Ok(())
     }
 
-    pub fn query_vector(&self, table: &str, query_vector: &[f32], limit: usize) -> Result<Vec<(String, f32)>> {
+    pub fn query_vector(
+        &self,
+        table: &str,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, f32)>> {
         let conn = self.conn.lock().unwrap();
         let table_sanitized = match table {
             "track_bliss_vec" => "track_bliss_vec",
@@ -588,7 +623,8 @@ impl LibraryDb {
 
     pub fn get_lyrics_cache(&self, track_id: &str) -> Result<Option<(String, String)>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT source, lines_json FROM lyrics_cache WHERE track_id = ?1")?;
+        let mut stmt =
+            conn.prepare("SELECT source, lines_json FROM lyrics_cache WHERE track_id = ?1")?;
         let mut rows = stmt.query(params![track_id])?;
         if let Some(r) = rows.next()? {
             Ok(Some((r.get(0)?, r.get(1)?)))
@@ -598,7 +634,11 @@ impl LibraryDb {
     }
 
     // --- Track Tags Update ---
-    pub fn update_track_tags(&self, track_id: &str, fields: &std::collections::HashMap<String, String>) -> Result<()> {
+    pub fn update_track_tags(
+        &self,
+        track_id: &str,
+        fields: &std::collections::HashMap<String, String>,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         for (key, val) in fields {
             let col = match key.as_str() {
@@ -615,7 +655,10 @@ impl LibraryDb {
         }
         if let Some(year_str) = fields.get("year") {
             if let Ok(year_num) = year_str.parse::<i32>() {
-                let _ = conn.execute("UPDATE tracks SET year = ?1 WHERE id = ?2", params![year_num, track_id]);
+                let _ = conn.execute(
+                    "UPDATE tracks SET year = ?1 WHERE id = ?2",
+                    params![year_num, track_id],
+                );
             }
         }
         Ok(())
@@ -623,7 +666,8 @@ impl LibraryDb {
 
     pub fn get_track_by_id(&self, track_id: &str) -> Result<Option<TrackSummary>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("
+        let mut stmt = conn.prepare(
+            "
             SELECT id, path, cue_parent_path, cue_start_ms, cue_end_ms, cue_index,
                    title, artist, album, album_artist, genre, year, duration_ms,
                    codec, sample_rate_hz, bit_depth, channels, channel_layout,
@@ -631,7 +675,8 @@ impl LibraryDb {
                    dynamic_range_dr, integrated_lufs, true_peak_dbtp, replay_gain_track_db,
                    mbid_recording, artwork_theme, waveform_peaks
             FROM tracks WHERE id = ?1
-        ")?;
+        ",
+        )?;
         let mut rows = stmt.query(params![track_id])?;
         if let Some(row) = rows.next()? {
             let is_dsd_int: i32 = row.get(18)?;
@@ -681,6 +726,7 @@ impl LibraryDb {
     }
 
     // --- Installed Addons ---
+    #[allow(clippy::too_many_arguments)]
     pub fn record_installed_addon(
         &self,
         id: &str,

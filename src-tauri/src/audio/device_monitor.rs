@@ -229,12 +229,6 @@ fn classify_transport(entry: &AlsaCardEntry, has_stream0: bool) -> (TransportTyp
         || desc_l.contains("hdmi")
     {
         (TransportType::Hdmi, false)
-    } else if driver_l.contains("hda")
-        || driver_l.contains("sof")
-        || name_l.contains("pch")
-        || name_l.contains("sofhdadsp")
-    {
-        (TransportType::Internal, true)
     } else {
         (TransportType::Internal, true)
     }
@@ -292,11 +286,13 @@ pub fn enumerate_audio_devices() -> Vec<AudioDeviceInfo> {
             vec![16, 24]
         };
 
-        let dsd_capability = caps.dsd_capability.unwrap_or(if transport_type == TransportType::Usb {
-            DsdCapability::PcmFallback
-        } else {
-            DsdCapability::None
-        });
+        let dsd_capability =
+            caps.dsd_capability
+                .unwrap_or(if transport_type == TransportType::Usb {
+                    DsdCapability::PcmFallback
+                } else {
+                    DsdCapability::None
+                });
 
         let dac_chipset = if !caps.native_dsd_formats.is_empty() {
             format!(

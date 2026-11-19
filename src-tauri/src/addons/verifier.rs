@@ -31,7 +31,13 @@ pub fn compute_sha256(bytes: &[u8]) -> String {
 
 /// Constructs canonical message for Ed25519 signing and verification.
 pub fn canonical_signing_message(id: &str, version: &str, sha256_hex: &str) -> Vec<u8> {
-    format!("aurahifi-addon:{}:{}:{}", id.trim(), version.trim(), sha256_hex.trim()).into_bytes()
+    format!(
+        "aurahifi-addon:{}:{}:{}",
+        id.trim(),
+        version.trim(),
+        sha256_hex.trim()
+    )
+    .into_bytes()
 }
 
 /// Signs an add-on payload given a 32-byte Ed25519 signing key seed or key.
@@ -105,8 +111,8 @@ pub fn verify_addon(
         }
     };
 
-    let pub_bytes = hex::decode(pub_key_hex)
-        .map_err(|e| format!("Invalid hex in trusted public key: {e}"))?;
+    let pub_bytes =
+        hex::decode(pub_key_hex).map_err(|e| format!("Invalid hex in trusted public key: {e}"))?;
     if pub_bytes.len() != 32 {
         return Err("Trusted public key is not 32 bytes".into());
     }
@@ -117,8 +123,8 @@ pub fn verify_addon(
         .map_err(|e| format!("Failed to parse VerifyingKey: {e}"))?;
 
     // 4. Verify Ed25519 signature
-    let sig_bytes = hex::decode(&manifest.signature)
-        .map_err(|e| format!("Invalid hex in signature: {e}"))?;
+    let sig_bytes =
+        hex::decode(&manifest.signature).map_err(|e| format!("Invalid hex in signature: {e}"))?;
     if sig_bytes.len() != 64 {
         return Err("Signature is not 64 bytes".into());
     }

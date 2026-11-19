@@ -310,7 +310,11 @@ async fn test_end_to_end_first_party_wasm_addons_execution() {
     });
 
     let playlist_res = manager
-        .run_action("smart-playlists", "generate_playlist", &playlist_req.to_string())
+        .run_action(
+            "smart-playlists",
+            "generate_playlist",
+            &playlist_req.to_string(),
+        )
         .await
         .expect("smart-playlists should execute cleanly in Extism sandbox");
 

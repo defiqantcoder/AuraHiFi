@@ -50,7 +50,10 @@ impl Default for SpatialEmitterCoord {
 }
 
 /// Maps a TrueHD [`ChannelLabel`] to ITU-R BS.2051 / Dolby Atmos 7.1.4 spherical coordinates.
-pub const fn channel_label_to_spherical(label: ChannelLabel, default_radius: f32) -> SpatialEmitterCoord {
+pub const fn channel_label_to_spherical(
+    label: ChannelLabel,
+    default_radius: f32,
+) -> SpatialEmitterCoord {
     let (az, el, is_lfe) = match label {
         ChannelLabel::L => (30.0, 0.0, false),
         ChannelLabel::R => (-30.0, 0.0, false),
@@ -201,11 +204,7 @@ impl AtmosSpatialFrame {
                 .min(self.channel_count);
             self.dynamic_object_count = oamd.program_assignment.num_dynamic_objects;
 
-            for (obj_idx, blocks) in damf_positions
-                .iter()
-                .enumerate()
-                .take(self.channel_count)
-            {
+            for (obj_idx, blocks) in damf_positions.iter().enumerate().take(self.channel_count) {
                 if let Some(&pos3d) = blocks.first() {
                     if obj_idx >= self.bed_channel_count
                         || oamd.program_assignment.b_dyn_object_only_program()
@@ -238,7 +237,11 @@ impl AtmosSpatialFrame {
         for i in 0..frames {
             let row = &self.samples[i];
             let mut left = row[0];
-            let mut right = if self.channel_count > 1 { row[1] } else { row[0] };
+            let mut right = if self.channel_count > 1 {
+                row[1]
+            } else {
+                row[0]
+            };
 
             if self.channel_count > 2 {
                 // Center
@@ -398,9 +401,11 @@ mod tests {
 
     #[test]
     fn folds_7_1_4_spatial_frame_to_stereo_without_clipping() {
-        let mut frame = AtmosSpatialFrame::default();
-        frame.sample_count = 32;
-        frame.channel_count = 12;
+        let mut frame = AtmosSpatialFrame {
+            sample_count: 32,
+            channel_count: 12,
+            ..Default::default()
+        };
         for s in 0..32 {
             for ch in 0..12 {
                 frame.samples[s][ch] = 0.5;

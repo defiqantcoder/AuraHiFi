@@ -1,12 +1,12 @@
 //! Multi-threaded audio folder scanner, lofty tag extractor, CUE sheet splitter, and loudness estimator.
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use crate::models::{ScanProgressEvent, TrackSummary};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
-use crate::models::{ScanProgressEvent, TrackSummary};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
 const SUPPORTED_EXTS: &[&str] = &[
     "flac", "wav", "m4a", "alac", "mp3", "ogg", "opus", "wv", "ape", "dsf", "dff", "thd", "truehd",
@@ -65,7 +65,8 @@ where
     }
 
     // 2. Process .cue sheets first (to avoid duplicate indexing of large monolithic audio images)
-    let mut cue_referenced_audio: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut cue_referenced_audio: std::collections::HashSet<PathBuf> =
+        std::collections::HashSet::new();
 
     for cue_path in &cue_files {
         stats.files_scanned += 1;
@@ -137,7 +138,11 @@ fn collect_files(dir: &Path, audio_files: &mut Vec<PathBuf>, cue_files: &mut Vec
             if path.is_dir() {
                 collect_files(&path, audio_files, cue_files);
             } else if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) {
+                if let Some(ext) = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase())
+                {
                     if ext == "cue" {
                         cue_files.push(path);
                     } else if SUPPORTED_EXTS.contains(&ext.as_str()) {
@@ -157,7 +162,11 @@ pub fn extract_audio_metadata(path: &Path, _folder_id: &str) -> Option<TrackSumm
     let channels = properties.channels().unwrap_or(2) as u16;
     let bit_depth = properties.bit_depth().unwrap_or(16) as u16;
 
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let is_dsd = ext == "dsf" || ext == "dff";
     let is_atmos = ext == "thd" || ext == "truehd" || channels > 6;
 
@@ -175,30 +184,41 @@ pub fn extract_audio_metadata(path: &Path, _folder_id: &str) -> Option<TrackSumm
         _ => "PCM",
     };
 
-    let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag());
 
-    let file_stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-    let title = tag.as_ref()
+    let file_stem = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let title = tag
+        .as_ref()
         .and_then(|t| t.title())
         .map(|s| s.to_string())
         .unwrap_or(file_stem);
 
-    let artist = tag.as_ref()
+    let artist = tag
+        .as_ref()
         .and_then(|t| t.artist())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Unknown Artist".to_string());
 
-    let album = tag.as_ref()
+    let album = tag
+        .as_ref()
         .and_then(|t| t.album())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Unknown Album".to_string());
 
-    let genre = tag.as_ref()
+    let genre = tag
+        .as_ref()
         .and_then(|t| t.genre())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Audiophile".to_string());
 
-    let year = tag.as_ref()
+    let year = tag
+        .as_ref()
         .and_then(|t| t.date())
         .map(|d| d.year as u32)
         .unwrap_or(2024);
@@ -215,7 +235,10 @@ pub fn extract_audio_metadata(path: &Path, _folder_id: &str) -> Option<TrackSumm
         format!("{}.0", channels)
     };
 
-    let id = format!("track-{}", crate::state::hash_path(path.to_str().unwrap_or_default()));
+    let id = format!(
+        "track-{}",
+        crate::state::hash_path(path.to_str().unwrap_or_default())
+    );
 
     let waveform_peaks = generate_mock_peaks(&id, 48);
 
@@ -287,7 +310,8 @@ fn parse_cue_sheet(
         } else if trimmed.starts_with("FILE ") {
             if let Some(first_quote) = trimmed.find('"') {
                 if let Some(second_quote) = trimmed[first_quote + 1..].find('"') {
-                    audio_file_name = Some(trimmed[first_quote + 1..first_quote + 1 + second_quote].to_string());
+                    audio_file_name =
+                        Some(trimmed[first_quote + 1..first_quote + 1 + second_quote].to_string());
                 }
             }
         } else if trimmed.starts_with("TRACK ") {
@@ -302,17 +326,16 @@ fn parse_cue_sheet(
                 performer: album_artist.clone(),
                 start_ms: 0,
             });
-        } else if trimmed.starts_with("TITLE ") && current_track.is_some() {
+        } else if let Some(val) = trimmed.strip_prefix("TITLE ") {
             if let Some(ref mut t) = current_track {
-                t.title = clean_cue_val(&trimmed[6..]);
+                t.title = clean_cue_val(val);
             }
-        } else if trimmed.starts_with("PERFORMER ") && current_track.is_some() {
+        } else if let Some(val) = trimmed.strip_prefix("PERFORMER ") {
             if let Some(ref mut t) = current_track {
-                t.performer = clean_cue_val(&trimmed[10..]);
+                t.performer = clean_cue_val(val);
             }
-        } else if trimmed.starts_with("INDEX 01 ") {
-            let ts_str = trimmed[9..].trim();
-            let ms = parse_cue_timestamp(ts_str);
+        } else if let Some(ts_str) = trimmed.strip_prefix("INDEX 01 ") {
+            let ms = parse_cue_timestamp(ts_str.trim());
             if let Some(ref mut t) = current_track {
                 t.start_ms = ms;
             }
@@ -331,7 +354,11 @@ fn parse_cue_sheet(
     let target_audio_path = if let Some(ref f) = audio_file_name {
         cue_parent.join(f)
     } else {
-        let stem = cue_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let stem = cue_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         cue_parent.join(format!("{}.flac", stem))
     };
 
@@ -418,7 +445,9 @@ fn generate_mock_peaks(seed: &str, count: usize) -> Vec<f32> {
 
     (0..count)
         .map(|i| {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let raw = (state >> 32) as f32 / 4294967296.0;
             let envelope = ((i as f32 / count as f32) * std::f32::consts::PI).sin();
             ((0.15 + 0.85 * raw * envelope).clamp(0.05, 1.0) * 1000.0).round() / 1000.0

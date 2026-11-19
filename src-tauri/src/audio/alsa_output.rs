@@ -77,7 +77,10 @@ impl StreamFormat {
 
 /// Validates that an ALSA device identifier obeys Bit-Perfect hardware discipline.
 /// Rejects `default` and `plughw:` in Bit-Perfect mode.
-pub fn validate_exclusive_alsa_id(alsa_id: &str, bit_perfect_exclusive: bool) -> Result<(), String> {
+pub fn validate_exclusive_alsa_id(
+    alsa_id: &str,
+    bit_perfect_exclusive: bool,
+) -> Result<(), String> {
     if !bit_perfect_exclusive {
         return Ok(());
     }
@@ -197,6 +200,12 @@ impl RtAudioControl {
     }
 }
 
+impl Default for RtAudioControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Real-time ALSA exclusive output handle managed by `AppState`.
 pub struct AlsaOutputEngine {
     pub control: Arc<RtAudioControl>,
@@ -312,6 +321,12 @@ impl AlsaOutputEngine {
 impl Drop for AlsaOutputEngine {
     fn drop(&mut self) {
         self.stop_stream();
+    }
+}
+
+impl Default for AlsaOutputEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

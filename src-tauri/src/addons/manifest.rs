@@ -135,7 +135,9 @@ impl AddonManifest {
             if !developer_mode {
                 return Err("Missing required Ed25519 signature in production mode".into());
             }
-        } else if self.signature.len() != 128 || !self.signature.chars().all(|c| c.is_ascii_hexdigit()) {
+        } else if self.signature.len() != 128
+            || !self.signature.chars().all(|c| c.is_ascii_hexdigit())
+        {
             return Err(format!(
                 "Invalid Ed25519 signature format (expected 128 hex chars): '{}'",
                 self.signature

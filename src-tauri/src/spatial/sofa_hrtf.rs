@@ -159,7 +159,11 @@ pub fn synthesize_hrir_filter(
         .clamp(5.0, (HRIR_TAP_LEN - 2) as f32) as usize;
 
     // Direct wave + head-shadow low-pass tail on contralateral ear
-    let contra_lpf_left = if lateral < 0.0 { (-lateral) * 0.28 } else { 0.06 };
+    let contra_lpf_left = if lateral < 0.0 {
+        (-lateral) * 0.28
+    } else {
+        0.06
+    };
     let contra_lpf_right = if lateral > 0.0 { lateral * 0.28 } else { 0.06 };
 
     left_taps[0] = left_gain * (1.0 - contra_lpf_left);
@@ -203,7 +207,10 @@ pub fn synthesize_hrir_filter(
 /// Supports:
 /// 1. AES69-2015 NetCDF-4 / HDF5 `.sofa` binary containers (`\x89HDF\r\n\x1a\n` magic header).
 /// 2. AuraHiFi JSON `.sofa` HRIR test/custom profile descriptors.
-pub fn load_sofa_profile(path_str: &str, profile_name: &str) -> Result<SofaProfileMetadata, String> {
+pub fn load_sofa_profile(
+    path_str: &str,
+    profile_name: &str,
+) -> Result<SofaProfileMetadata, String> {
     let trimmed = path_str.trim();
     if trimmed.is_empty()
         || trimmed.contains("sadie_d1")
@@ -367,7 +374,12 @@ impl SofaHrtfRenderer {
 
     /// Updates the 3D listener/virtual speaker geometry (`azimuth_deg`, `elevation_deg`, `radius_meters`)
     /// from the 3D Spatial Pad UI without allocating.
-    pub fn set_listener_geometry(&mut self, azimuth_deg: f32, elevation_deg: f32, radius_meters: f32) {
+    pub fn set_listener_geometry(
+        &mut self,
+        azimuth_deg: f32,
+        elevation_deg: f32,
+        radius_meters: f32,
+    ) {
         self.stereo_azimuth_deg = azimuth_deg.clamp(5.0, 175.0);
         self.stereo_elevation_deg = elevation_deg.clamp(-45.0, 80.0);
         self.stereo_radius_meters = radius_meters.clamp(0.5, 8.0);
@@ -409,8 +421,8 @@ impl SofaHrtfRenderer {
                 .unwrap_or(ChannelLabel::C);
             let mut coord = channel_label_to_spherical(label, self.stereo_radius_meters);
             if !coord.is_lfe {
-                coord.elevation_deg = (coord.elevation_deg + self.stereo_elevation_deg * 0.35)
-                    .clamp(-60.0, 85.0);
+                coord.elevation_deg =
+                    (coord.elevation_deg + self.stereo_elevation_deg * 0.35).clamp(-60.0, 85.0);
             }
             self.atmos_filters[ch] =
                 synthesize_hrir_filter(coord, &self.profile, self.sample_rate_hz);
@@ -547,9 +559,11 @@ mod tests {
     #[test]
     fn renders_7_1_4_atmos_frame_to_binaural_stereo_in_place() {
         let mut renderer = SofaHrtfRenderer::new(48_000, 30.0, 12.0, 2.4);
-        let mut atmos = AtmosSpatialFrame::default();
-        atmos.sample_count = 64;
-        atmos.channel_count = 12;
+        let mut atmos = AtmosSpatialFrame {
+            sample_count: 64,
+            channel_count: 12,
+            ..Default::default()
+        };
         // Inject impulse on Left Front (ch 0) and Top Front Left (ch 8)
         for s in 0..64 {
             atmos.samples[s][0] = ((s as f32) * 0.2).sin() * 0.5;

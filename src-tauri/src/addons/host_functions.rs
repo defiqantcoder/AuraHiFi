@@ -1,9 +1,5 @@
 //! Host functions exposed to sandboxed Extism Wasm add-ons.
 
-use std::collections::HashMap;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use chromaprint::{Algorithm, Fingerprinter};
 use extism::{host_fn, Function, UserData, PTR};
 use lofty::config::WriteOptions;
@@ -11,6 +7,10 @@ use lofty::file::TaggedFileExt;
 use lofty::probe::Probe;
 use lofty::tag::{ItemKey, Tag, TagExt};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
@@ -21,12 +21,8 @@ use crate::library::db::LibraryDb;
 use crate::models::TrackSummary;
 
 /// Allowed scoped credential providers
-const ALLOWED_CREDENTIAL_PROVIDERS: &[&str] = &[
-    "gemini",
-    "acoustid",
-    "discogs",
-    "musicbrainz_contact",
-];
+const ALLOWED_CREDENTIAL_PROVIDERS: &[&str] =
+    &["gemini", "acoustid", "discogs", "musicbrainz_contact"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,7 +143,12 @@ fn compute_chromaprint_from_file(path: &Path) -> Result<(String, u32), String> {
     }
 
     let mut format = symphonia::default::get_probe()
-        .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
+        .probe(
+            &hint,
+            mss,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
         .map_err(|e| format!("Probe error: {e}"))?;
 
     let track = format
@@ -161,7 +162,11 @@ fn compute_chromaprint_from_file(path: &Path) -> Result<(String, u32), String> {
         .ok_or_else(|| "No audio codec parameters found in track".to_string())?;
 
     let sample_rate = codec_params.sample_rate.unwrap_or(44100);
-    let channels = codec_params.channels.as_ref().map(|c| c.count() as u16).unwrap_or(2);
+    let channels = codec_params
+        .channels
+        .as_ref()
+        .map(|c| c.count() as u16)
+        .unwrap_or(2);
 
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(codec_params, &AudioDecoderOptions::default())
@@ -198,7 +203,9 @@ fn compute_chromaprint_from_file(path: &Path) -> Result<(String, u32), String> {
         }
     }
 
-    fingerprinter.finish().map_err(|e| format!("Fingerprint finish error: {e:?}"))?;
+    fingerprinter
+        .finish()
+        .map_err(|e| format!("Fingerprint finish error: {e:?}"))?;
     let encoded = fingerprinter.encode();
     let duration_secs = if sample_rate > 0 {
         (total_samples / (sample_rate as u64)) as u32
@@ -248,10 +255,8 @@ host_fn!(pub query_sqlite_vec_fn(ctx: HostContext; input: String) -> String {
     let ctx_data = ctx.get()?;
     let ctx_guard = ctx_data.lock().unwrap();
     let results = if let Some(ref db) = ctx_guard.db {
-        match db.query_vector(&req.table, &req.vector, req.limit) {
-            Ok(matches) => matches,
-            Err(_) => Vec::new(),
-        }
+        db.query_vector(&req.table, &req.vector, req.limit)
+            .unwrap_or_default()
     } else {
         Vec::new()
     };

@@ -131,9 +131,7 @@ mod tests {
         assert!(cfg
             .wireplumber_content
             .contains("alsa.card_name = \"~.*iFiAudio.*\""));
-        assert!(cfg
-            .pipewire_file_path
-            .ends_with("50-bitperfect-dac.conf"));
+        assert!(cfg.pipewire_file_path.ends_with("50-bitperfect-dac.conf"));
         assert!(cfg
             .wireplumber_file_path
             .ends_with("50-disable-auto-dac.conf"));

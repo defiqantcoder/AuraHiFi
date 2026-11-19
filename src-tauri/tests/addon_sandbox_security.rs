@@ -85,7 +85,10 @@ fn test_tampered_byte_rejection() {
     wasm_bytes[last_idx] ^= 0xFF;
 
     let res = verify_addon(&manifest, &wasm_bytes, false);
-    assert!(res.is_err(), "Host must reject binary when SHA-256 does not match");
+    assert!(
+        res.is_err(),
+        "Host must reject binary when SHA-256 does not match"
+    );
     let err_msg = res.err().unwrap();
     assert!(
         err_msg.contains("SHA-256 integrity mismatch"),
@@ -102,7 +105,10 @@ fn test_invalid_signature_rejection_in_production() {
     manifest.signature = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".into();
 
     let res = verify_addon(&manifest, &wasm_bytes, false);
-    assert!(res.is_err(), "Host must reject forged/invalid Ed25519 signature when developer_mode == false");
+    assert!(
+        res.is_err(),
+        "Host must reject forged/invalid Ed25519 signature when developer_mode == false"
+    );
 }
 
 #[test]
@@ -112,7 +118,10 @@ fn test_missing_signature_rejection_in_production() {
     manifest.signature = "".into();
 
     let res = verify_addon(&manifest, &wasm_bytes, false);
-    assert!(res.is_err(), "Host must reject unsigned plugins in production mode");
+    assert!(
+        res.is_err(),
+        "Host must reject unsigned plugins in production mode"
+    );
 }
 
 #[test]
@@ -123,7 +132,10 @@ fn test_developer_mode_allows_unsigned_local_plugin() {
 
     let report = verify_addon(&manifest, &wasm_bytes, true)
         .expect("Developer mode must allow loading local unsigned plugins with warning");
-    assert!(!report.verified, "Unsigned plugin must report verified = false");
+    assert!(
+        !report.verified,
+        "Unsigned plugin must report verified = false"
+    );
     assert!(report.developer_bypass, "developer_bypass must be true");
 }
 
@@ -140,8 +152,7 @@ fn test_infinite_loop_cpu_fuel_exhaustion() {
     let functions = create_host_functions(ctx);
 
     // Configure manifest with 500ms timeout
-    let manifest = ExtismManifest::new([wasm])
-        .with_timeout(Duration::from_millis(500));
+    let manifest = ExtismManifest::new([wasm]).with_timeout(Duration::from_millis(500));
 
     // Limit CPU fuel budget strictly to 500,000 instructions
     let mut plugin = PluginBuilder::new(manifest)
@@ -155,10 +166,14 @@ fn test_infinite_loop_cpu_fuel_exhaustion() {
     let result = plugin.call::<&str, &str>("infinite_loop", "");
     let elapsed = start.elapsed();
 
-    assert!(result.is_err(), "Infinite loop must be terminated by fuel or timeout");
+    assert!(
+        result.is_err(),
+        "Infinite loop must be terminated by fuel or timeout"
+    );
     assert!(
         elapsed < Duration::from_secs(3),
-        "Execution must be stopped promptly; took {:?}", elapsed
+        "Execution must be stopped promptly; took {:?}",
+        elapsed
     );
 }
 
@@ -264,8 +279,7 @@ fn test_host_boundary_path_traversal_rejection() {
     let ctx = Arc::new(HostContext::new(None));
     let functions = create_host_functions(ctx);
 
-    let manifest = ExtismManifest::new([wasm])
-        .with_timeout(Duration::from_millis(2000));
+    let manifest = ExtismManifest::new([wasm]).with_timeout(Duration::from_millis(2000));
 
     let mut plugin = PluginBuilder::new(manifest)
         .with_wasi(false)
@@ -289,8 +303,7 @@ fn test_host_boundary_sql_injection_rejection() {
     let ctx = Arc::new(HostContext::new(None));
     let functions = create_host_functions(ctx);
 
-    let manifest = ExtismManifest::new([wasm])
-        .with_timeout(Duration::from_millis(2000));
+    let manifest = ExtismManifest::new([wasm]).with_timeout(Duration::from_millis(2000));
 
     let mut plugin = PluginBuilder::new(manifest)
         .with_wasi(false)
@@ -318,8 +331,7 @@ fn test_unauthorized_keyring_credential_scope_denial() {
     let ctx = Arc::new(HostContext::new(None));
     let functions = create_host_functions(ctx);
 
-    let manifest = ExtismManifest::new([wasm])
-        .with_timeout(Duration::from_millis(2000));
+    let manifest = ExtismManifest::new([wasm]).with_timeout(Duration::from_millis(2000));
 
     let mut plugin = PluginBuilder::new(manifest)
         .with_wasi(false)
@@ -363,8 +375,14 @@ fn test_musicbrainz_rate_limit_token_bucket_spacing() {
     }
 
     let mut bucket = TokenBucket::new(1000);
-    assert!(bucket.try_acquire(), "First request in window should succeed");
-    assert!(!bucket.try_acquire(), "Immediate burst request must be rejected under 1 req/s policy");
+    assert!(
+        bucket.try_acquire(),
+        "First request in window should succeed"
+    );
+    assert!(
+        !bucket.try_acquire(),
+        "Immediate burst request must be rejected under 1 req/s policy"
+    );
 }
 
 #[test]

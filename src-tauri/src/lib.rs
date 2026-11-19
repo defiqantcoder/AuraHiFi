@@ -19,7 +19,7 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             let app_state = app.state::<AppState>().inner().clone();
-            
+
             // Initialize local SQLite library database in Tauri app data directory
             if let Ok(data_dir) = app.path().app_data_dir() {
                 let db_path = data_dir.join("library.db");

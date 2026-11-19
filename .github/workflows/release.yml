@@ -33,13 +33,13 @@ jobs:
           cache: npm
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
       - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@82a92a6e8fbeee08c636ad5c3fcc50714549247a # v2.7.5
+        uses: swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
         with:
           workspaces: "./src-tauri -> target"
 
@@ -81,7 +81,7 @@ jobs:
           cp addons/smart-playlists/plugin.wasm src-tauri/addons/dist/smart-playlists/
 
       - name: Build Tauri .deb and AppImage
-        uses: tauri-apps/tauri-action@850259972322a36b3f94689698d4db6b0cf91f74 # v0.5.18
+        uses: tauri-apps/tauri-action@6a45448f17a006facb105cc5257b3edbc353038a # v0.5.18
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -101,7 +101,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Upload SHA256 checksums to Release
-        uses: softprops/action-gh-release@c95fe1489396fe8a9ec87453c663f5394d2537e1 # v2.2.1
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           draft: true
           files: dist-release/SHA256SUMS.txt

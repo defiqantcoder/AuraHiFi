@@ -18,6 +18,7 @@ const MUSICBRAINZ_USER_AGENT: &str = "AuraHiFi/1.2.0 ( https://github.com/aurahi
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct EnrichOptions {
     #[serde(default)]
     pub use_acoust_id: bool,
@@ -33,6 +34,7 @@ struct EnrichOptions {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct EnrichRequest {
     pub track_id: String,
     pub title: Option<String>,
