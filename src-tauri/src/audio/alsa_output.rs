@@ -343,7 +343,13 @@ impl AlsaOutputEngine {
         let feeder_handle = thread::Builder::new()
             .name("aurahifi-feeder".into())
             .spawn(move || {
-                run_feeder_loop(producer, control_feeder, rate, channels as usize, track_path);
+                run_feeder_loop(
+                    producer,
+                    control_feeder,
+                    rate,
+                    channels as usize,
+                    track_path,
+                );
             })
             .map_err(|e| format!("Failed to spawn audio feeder thread: {e}"))?;
 
@@ -407,7 +413,9 @@ fn run_feeder_loop(
                     MetadataOptions::default(),
                 ) {
                     if let Some(track) = format.default_track(TrackType::Audio) {
-                        if let Some(codec_params) = track.codec_params.as_ref().and_then(|p| p.audio()) {
+                        if let Some(codec_params) =
+                            track.codec_params.as_ref().and_then(|p| p.audio())
+                        {
                             if let Ok(mut decoder) = symphonia::default::get_codecs()
                                 .make_audio_decoder(codec_params, &AudioDecoderOptions::default())
                             {
@@ -426,12 +434,18 @@ fn run_feeder_loop(
                                         Ok(Some(packet)) => {
                                             if let Ok(decoded) = decoder.decode(&packet) {
                                                 pcm_samples.clear();
-                                                decoded.copy_to_vec_interleaved::<i32>(&mut pcm_samples);
+                                                decoded.copy_to_vec_interleaved::<i32>(
+                                                    &mut pcm_samples,
+                                                );
 
                                                 for &sample in &pcm_samples {
                                                     while producer.push(sample).is_err() {
-                                                        if control.stop_requested.load(Ordering::Acquire)
-                                                            || control.unplug_halted.load(Ordering::Acquire)
+                                                        if control
+                                                            .stop_requested
+                                                            .load(Ordering::Acquire)
+                                                            || control
+                                                                .unplug_halted
+                                                                .load(Ordering::Acquire)
                                                         {
                                                             return;
                                                         }
@@ -473,7 +487,11 @@ fn run_feeder_loop(
             }
 
             for _ in 0..256 {
-                let envelope = (((sample_index as f64 / rate_f) * 0.5 * std::f64::consts::PI).sin().abs() * 0.25 + 0.1) as f32;
+                let envelope = (((sample_index as f64 / rate_f) * 0.5 * std::f64::consts::PI)
+                    .sin()
+                    .abs()
+                    * 0.25
+                    + 0.1) as f32;
                 sample_index = sample_index.wrapping_add(1);
 
                 let s_l = (phase_l.sin() as f32) * envelope;

@@ -100,7 +100,10 @@ pub async fn select_audio_device(
                 let rate = if dev.supported_sample_rates.contains(&target_rate) {
                     target_rate
                 } else {
-                    dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                    dev.supported_sample_rates
+                        .first()
+                        .copied()
+                        .unwrap_or(48_000)
                 };
                 let format = StreamFormat::Pcm {
                     sample_rate_hz: rate,
@@ -315,7 +318,10 @@ pub async fn transport_command(
                 let rate = if dev.supported_sample_rates.contains(&target_rate) {
                     target_rate
                 } else {
-                    dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                    dev.supported_sample_rates
+                        .first()
+                        .copied()
+                        .unwrap_or(48_000)
                 };
                 let format = StreamFormat::Pcm {
                     sample_rate_hz: rate,
@@ -364,7 +370,10 @@ pub async fn transport_command(
                         let rate = if dev.supported_sample_rates.contains(&target_rate) {
                             target_rate
                         } else {
-                            dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                            dev.supported_sample_rates
+                                .first()
+                                .copied()
+                                .unwrap_or(48_000)
                         };
                         let format = StreamFormat::Pcm {
                             sample_rate_hz: rate,
@@ -408,7 +417,10 @@ pub async fn transport_command(
                         let rate = if dev.supported_sample_rates.contains(&target_rate) {
                             target_rate
                         } else {
-                            dev.supported_sample_rates.first().copied().unwrap_or(48_000)
+                            dev.supported_sample_rates
+                                .first()
+                                .copied()
+                                .unwrap_or(48_000)
                         };
                         let format = StreamFormat::Pcm {
                             sample_rate_hz: rate,
