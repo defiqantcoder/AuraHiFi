@@ -16,12 +16,10 @@ strip = true
 # --- Development Profile ---
 [profile.dev]
 debug = 1
-split-debuginfo = "unpacked"
 
 # --- Test Profile ---
 [profile.test]
 debug = 1
-split-debuginfo = "unpacked"
 
 # --- Strip Debug Symbols from 3rd-Party Dependencies ---
 [profile.dev.package."*"]

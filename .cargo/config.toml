@@ -1,6 +1,2 @@
 [build]
 target-dir = "src-tauri/target"
-rustflags = ["-C", "split-debuginfo=unpacked"]
-
-[profile.dev]
-incremental = false
