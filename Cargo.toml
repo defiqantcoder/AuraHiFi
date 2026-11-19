@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "src-tauri",
+]
+exclude = [
+    "addons",
+]
+resolver = "2"

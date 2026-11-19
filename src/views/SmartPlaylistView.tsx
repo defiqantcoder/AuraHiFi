@@ -15,6 +15,7 @@ import {
   type SequencingStrategy,
   type SmartPlaylistResultItem,
 } from '../lib/studioHelpers';
+import { ExplainTooltip } from '../components/ui/ExplainTooltip';
 
 type StudioModeTab = 'clap_vibe' | 'bliss_acoustic' | 'audio_sample';
 
@@ -39,6 +40,11 @@ export function SmartPlaylistView() {
   const smartPlaylistSeedTrackId = useAudioStore((s) => s.smartPlaylistSeedTrackId);
   const playTrack = useAudioStore((s) => s.playTrack);
   const generateSmartPlaylist = useAudioStore((s) => s.generateSmartPlaylist);
+  const smartPlaylistEngineMode = useAudioStore((s) => s.smartPlaylistEngineMode);
+  const setSmartPlaylistEngineMode = useAudioStore((s) => s.setSmartPlaylistEngineMode);
+  const geminiModel = useAudioStore((s) => s.geminiModel);
+  const credentialStatuses = useAudioStore((s) => s.credentialStatuses);
+  const setActiveRoute = useAudioStore((s) => s.setActiveRoute);
 
   const [modeTab, setModeTab] = useState<StudioModeTab>(
     smartPlaylistSeedTrackId ? 'bliss_acoustic' : 'clap_vibe'
@@ -121,6 +127,60 @@ export function SmartPlaylistView() {
           className="flex w-full shrink-0 flex-col justify-between rounded-[14px] border border-[#2B3342] bg-[#14181F] p-5 @[880px]:w-[380px]"
         >
           <div className="space-y-5">
+            {/* Engine Mode Switcher & Gemini Key Status */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-[#9AA4B2] uppercase tracking-wider">
+                  Engine Mode
+                </span>
+                <ExplainTooltip termId="gemini_playlist">
+                  <button
+                    type="button"
+                    onClick={() => setActiveRoute('settings')}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
+                      credentialStatuses.gemini?.configured
+                        ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30 hover:bg-[#10B981]/30'
+                        : 'bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/30 hover:bg-[#F59E0B]/30'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        credentialStatuses.gemini?.configured ? 'bg-[#10B981]' : 'bg-[#F59E0B]'
+                      }`}
+                    />
+                    <span>
+                      {credentialStatuses.gemini?.configured
+                        ? `Gemini Connected (${geminiModel})`
+                        : 'Gemini Key Not Set → Settings'}
+                    </span>
+                  </button>
+                </ExplainTooltip>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1 rounded-[8px] border border-[#2B3342] bg-[#0B0D10] p-1">
+                {(
+                  [
+                    { id: 'auto', label: 'Auto (Gemini + Local)' },
+                    { id: 'online', label: 'Online (Gemini)' },
+                    { id: 'offline', label: 'Offline Only' },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSmartPlaylistEngineMode(m.id)}
+                    className={`rounded-[6px] px-1.5 py-1.5 text-center text-[10.5px] font-semibold transition-colors ${
+                      smartPlaylistEngineMode === m.id
+                        ? 'bg-[#10B981] text-[#0B0D10]'
+                        : 'text-[#9AA4B2] hover:text-[#F2F4F8]'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Mode Tabs */}
             <div
               role="tablist"
@@ -179,14 +239,17 @@ export function SmartPlaylistView() {
                   htmlFor="clap-vibe-prompt"
                   className="mb-1.5 block text-xs font-semibold text-[#F2F4F8]"
                 >
-                  {modeTab === 'clap_vibe' ? 'Vibe Prompt (CLAP Natural Language)' : 'Acoustic Similarity Notes'}
+                  {modeTab === 'clap_vibe'
+                    ? 'Plain-Language Vibe & Mood Prompt'
+                    : 'Acoustic Similarity Notes'}
                 </label>
                 <textarea
                   id="clap-vibe-prompt"
-                  rows={2}
+                  rows={3}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  className="w-full resize-none rounded-[6px] border border-[#2B3342] bg-[#0B0D10] px-3 py-2 text-xs leading-relaxed text-[#F2F4F8] focus:border-[#38BDF8] focus:outline-none"
+                  placeholder="Describe vibe, mood, era, tempo, or instrumentation in plain language (e.g. 'Late night introspective piano trio with brushed snare and deep analog warmth')."
+                  className="w-full resize-none rounded-[6px] border border-[#2B3342] bg-[#0B0D10] px-3 py-2 text-xs leading-relaxed text-[#F2F4F8] placeholder:text-[#6B7280] focus:border-[#38BDF8] focus:outline-none"
                 />
               </div>
             )}

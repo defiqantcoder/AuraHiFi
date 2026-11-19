@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Cpu,
   Disc3,
+  HelpCircle,
   Package,
   Search,
   Settings,
@@ -35,6 +36,8 @@ export function LeftNavigationRail() {
   const tracks = useAudioStore((s) => s.tracks);
   const playback = useAudioStore((s) => s.playback);
   const addons = useAudioStore((s) => s.addons);
+  const hoverHelpEnabled = useAudioStore((s) => s.hoverHelpEnabled);
+  const setHoverHelpEnabled = useAudioStore((s) => s.setHoverHelpEnabled);
 
   const hasAddonUpdates = addons.some((a) => a.hasUpdate);
   const activeDevice = devices.find((d) => d.alsaId === signalPath?.activeDeviceId) ?? devices[0] ?? null;
@@ -217,6 +220,42 @@ export function LeftNavigationRail() {
           </div>
         ))}
       </nav>
+
+      {/* Hover Help Quick Toggle */}
+      <div className="border-t border-[#2B3342] px-3 py-2">
+        {sidebarCollapsed ? (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setHoverHelpEnabled(!hoverHelpEnabled)}
+              title={`Hover Help: ${hoverHelpEnabled ? 'ON' : 'OFF'}`}
+              className={`p-1.5 rounded transition-colors ${
+                hoverHelpEnabled ? 'text-[#10B981]' : 'text-[#9AA4B2] hover:text-[#F2F4F8]'
+              }`}
+            >
+              <HelpCircle className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-1.5 text-[#9AA4B2]">
+              <HelpCircle className="h-3.5 w-3.5" />
+              <span>Hover Help</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHoverHelpEnabled(!hoverHelpEnabled)}
+              className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold transition-colors ${
+                hoverHelpEnabled
+                  ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30'
+                  : 'bg-[#1C222D] text-[#9AA4B2] border border-[#2B3342]'
+              }`}
+            >
+              {hoverHelpEnabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Pinned Active DAC Card at Bottom */}
       <div className="border-t border-[#2B3342] p-3">

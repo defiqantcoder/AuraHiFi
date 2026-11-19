@@ -308,10 +308,10 @@ export function MetadataWorkbenchView() {
     const genreField = activeJob.fields.find((f) => f.field === 'genre' && f.approved && f.changed);
 
     if (albumField || genreField) {
-      commitAlbumMetadata(oldAlbum, {
-        album: albumField?.proposedValue,
-        genre: genreField?.proposedValue,
-      });
+      const patch: Record<string, string> = {};
+      if (albumField?.proposedValue) patch.album = albumField.proposedValue;
+      if (genreField?.proposedValue) patch.genre = genreField.proposedValue;
+      void commitAlbumMetadata(oldAlbum, patch);
     }
 
     setJobs((prev) => prev.map((j) => (j.id === activeJob.id ? nextJob : j)));

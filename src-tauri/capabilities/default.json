@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege Tauri v2 capability for the main AuraHiFi console window. All hardware, filesystem, SQLite, and outbound HTTP access is mediated exclusively by validated Rust commands and the Extism Wasm sandbox.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "keyring-store:default"
+  ]
+}

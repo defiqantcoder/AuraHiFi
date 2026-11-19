@@ -1,25 +1,34 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   CheckCircle2,
   Copy,
   Cpu,
   Download,
+  ExternalLink,
   FileCode2,
+  Folder,
+  FolderPlus,
+  HelpCircle,
   KeyRound,
+  Loader2,
   Monitor,
   RefreshCw,
   ShieldAlert,
+  ShieldCheck,
   Sliders,
+  Sparkles,
   Terminal,
+  Trash2,
   Unplug,
   X,
   Zap,
 } from 'lucide-react';
 import { useAudioStore } from '../store/useAudioStore';
 import { generatePipeWireConfigs } from '../lib/studioHelpers';
+import { ExplainTooltip } from '../components/ui/ExplainTooltip';
 
-type SettingsSection = 'engine' | 'pipewire' | 'credentials' | 'desktop' | 'diagnostics';
+type SettingsSection = 'engine' | 'library' | 'pipewire' | 'credentials' | 'hover_help' | 'desktop' | 'diagnostics';
 
 export function SettingsView() {
   const devices = useAudioStore((s) => s.devices);
@@ -31,6 +40,32 @@ export function SettingsView() {
   const mpris2Enabled = useAudioStore((s) => s.mpris2Enabled);
   const minimizeToTray = useAudioStore((s) => s.minimizeToTray);
   const preventSleep = useAudioStore((s) => s.preventSleep);
+
+  // Library & Storage
+  const libraryFolders = useAudioStore((s) => s.libraryFolders);
+  const defaultMusicDirExists = useAudioStore((s) => s.defaultMusicDirExists);
+  const defaultMusicDirPath = useAudioStore((s) => s.defaultMusicDirPath);
+  const scanProgress = useAudioStore((s) => s.scanProgress);
+  const pickAndAddFolder = useAudioStore((s) => s.pickAndAddFolder);
+  const addMusicFolder = useAudioStore((s) => s.addMusicFolder);
+  const removeLibraryFolder = useAudioStore((s) => s.removeLibraryFolder);
+  const toggleFolderWatch = useAudioStore((s) => s.toggleFolderWatch);
+  const rescanAllFolders = useAudioStore((s) => s.rescanAllFolders);
+
+  // Hover Help & Explanations
+  const hoverHelpEnabled = useAudioStore((s) => s.hoverHelpEnabled);
+  const setHoverHelpEnabled = useAudioStore((s) => s.setHoverHelpEnabled);
+  const hoverHelpDelayMs = useAudioStore((s) => s.hoverHelpDelayMs);
+  const setHoverHelpDelayMs = useAudioStore((s) => s.setHoverHelpDelayMs);
+
+  // API Keyring & Online AI
+  const geminiModel = useAudioStore((s) => s.geminiModel);
+  const setGeminiModel = useAudioStore((s) => s.setGeminiModel);
+  const credentialStatuses = useAudioStore((s) => s.credentialStatuses);
+  const fetchCredentialStatus = useAudioStore((s) => s.fetchCredentialStatus);
+  const saveCredential = useAudioStore((s) => s.saveCredential);
+  const deleteCredential = useAudioStore((s) => s.deleteCredential);
+  const testCredential = useAudioStore((s) => s.testCredential);
 
   const setExclusiveAlsaPolicy = useAudioStore((s) => s.setExclusiveAlsaPolicy);
   const setBypassLaptopSpeakersPolicy = useAudioStore((s) => s.setBypassLaptopSpeakersPolicy);
@@ -47,11 +82,21 @@ export function SettingsView() {
   const [pipewireModalOpen, setPipewireModalOpen] = useState(false);
   const [copiedTarget, setCopiedTarget] = useState<'pw' | 'wp' | null>(null);
 
-  // Local API Credentials form state (visible labels, stored locally)
-  const [discogsPat, setDiscogsPat] = useState('');
-  const [acoustIdKey, setAcoustIdKey] = useState('');
-  const [mbContactEmail, setMbContactEmail] = useState('audio-ops@studio.local');
-  const [credFeedback, setCredFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  // Keyring Inputs & Status
+  const [geminiKeyInput, setGeminiKeyInput] = useState('');
+  const [acoustIdKeyInput, setAcoustIdKeyInput] = useState('');
+  const [discogsPatInput, setDiscogsPatInput] = useState('');
+  const [mbContactInput, setMbContactInput] = useState('audio-ops@studio.local');
+  const [testingService, setTestingService] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [savingService, setSavingService] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchCredentialStatus('gemini');
+    void fetchCredentialStatus('acoustid');
+    void fetchCredentialStatus('discogs');
+    void fetchCredentialStatus('musicbrainz_contact');
+  }, [fetchCredentialStatus]);
 
   const activeDevice = devices.find((d) => d.alsaId === signalPath?.activeDeviceId) ?? devices[0] ?? null;
 
@@ -60,10 +105,12 @@ export function SettingsView() {
     [activeDevice, ringBufferMb]
   );
 
-  const categories: { id: SettingsSection; label: string; icon: typeof Sliders }[] = [
+  const categories: { id: SettingsSection; label: string; icon: any }[] = [
     { id: 'engine', label: 'Bit-Perfect Engine', icon: Sliders },
+    { id: 'library', label: 'Library & Storage', icon: Folder },
     { id: 'pipewire', label: 'Ubuntu PipeWire Assistant', icon: FileCode2 },
-    { id: 'credentials', label: 'Local API Credentials', icon: KeyRound },
+    { id: 'credentials', label: 'API Keys & Online AI', icon: KeyRound },
+    { id: 'hover_help', label: 'Hover Help & Explanations', icon: HelpCircle },
     { id: 'desktop', label: 'Desktop & MPRIS2', icon: Monitor },
     { id: 'diagnostics', label: 'IPC & Hardware Audit', icon: Terminal },
   ];
@@ -90,18 +137,52 @@ export function SettingsView() {
     URL.revokeObjectURL(url);
   };
 
-  const handleSaveCredentials = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mbContactEmail.trim() || !mbContactEmail.includes('@')) {
-      setCredFeedback({
-        type: 'err',
-        text: 'MusicBrainz requires a valid contact email in the User-Agent header to avoid HTTP 503 throttling.',
-      });
-      return;
+  const handleTestKey = async (service: string, keyVal?: string) => {
+    setTestingService(service);
+    try {
+      const res = await testCredential(service, keyVal || undefined);
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { ok: res.valid, message: res.message },
+      }));
+    } catch (e: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { ok: false, message: e?.message ?? 'Test failed' },
+      }));
+    } finally {
+      setTestingService(null);
     }
-    setCredFeedback({
-      type: 'ok',
-      text: 'Local API credentials saved to Ubuntu Secret Service (libsecret) — zero telemetry transmitted.',
+  };
+
+  const handleSaveKey = async (service: string, secret: string, model?: string) => {
+    if (!secret.trim()) return;
+    setSavingService(service);
+    try {
+      await saveCredential(service, secret.trim(), model);
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { ok: true, message: 'Saved securely to Ubuntu Keyring' },
+      }));
+      if (service === 'gemini') setGeminiKeyInput('');
+      if (service === 'acoustid') setAcoustIdKeyInput('');
+      if (service === 'discogs') setDiscogsPatInput('');
+    } catch (e: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { ok: false, message: e?.message ?? 'Save failed' },
+      }));
+    } finally {
+      setSavingService(null);
+    }
+  };
+
+  const handleDeleteKey = async (service: string) => {
+    await deleteCredential(service);
+    setTestResults((prev) => {
+      const next = { ...prev };
+      delete next[service];
+      return next;
     });
   };
 
@@ -349,83 +430,584 @@ export function SettingsView() {
             </section>
           )}
 
-          {/* 3. Local API Credentials (Every input has a visible <label>) */}
-          {section === 'credentials' && (
+          {/* 2. Library & Storage Section */}
+          {section === 'library' && (
             <section className="rounded-[14px] border border-[#2B3342] bg-[#14181F] p-5 space-y-4">
-              <div>
-                <h2 className="font-display text-base font-semibold text-[#F2F4F8]">
-                  Local API Credentials (Ubuntu Keyring / libsecret)
-                </h2>
-                <p className="mt-0.5 text-xs text-[#9AA4B2]">
-                  Used exclusively by sandboxed metadata add-ons on allow-listed hosts. Stored locally on your machine.
-                </p>
-              </div>
-
-              <form onSubmit={handleSaveCredentials} className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2B3342] pb-4">
                 <div>
-                  <label htmlFor="discogs-pat" className="mb-1.5 block text-xs font-semibold text-[#F2F4F8]">
-                    Discogs Personal Access Token (PAT)
-                  </label>
-                  <input
-                    id="discogs-pat"
-                    type="password"
-                    value={discogsPat}
-                    onChange={(e) => setDiscogsPat(e.target.value)}
-                    placeholder="Enter Discogs personal access token"
-                    className="w-full rounded-[6px] border border-[#2B3342] bg-[#0B0D10] px-3 py-2 mono-telemetry text-xs text-[#F2F4F8] placeholder:text-[#9AA4B2] focus:border-[#38BDF8] focus:outline-none"
-                  />
+                  <h2 className="font-display text-base font-semibold text-[#F2F4F8]">
+                    Library &amp; Storage Folders
+                  </h2>
+                  <p className="mt-0.5 text-xs text-[#9AA4B2]">
+                    Lossless directories indexed in SQLite library.db and monitored live by the notify filesystem watcher.
+                  </p>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2">
+                  <ExplainTooltip termId="add_music_folder">
+                    <button
+                      type="button"
+                      onClick={() => void pickAndAddFolder()}
+                      className="inline-flex items-center gap-2 rounded-[8px] bg-[#10B981] px-3.5 py-2 text-xs font-semibold text-[#0B0D10] transition-colors duration-150 hover:bg-[#059669] shadow"
+                    >
+                      <FolderPlus className="h-4 w-4" aria-hidden="true" />
+                      <span>+ Add Music Folder</span>
+                    </button>
+                  </ExplainTooltip>
+
+                  <button
+                    type="button"
+                    onClick={() => void rescanAllFolders()}
+                    disabled={scanProgress !== null && !scanProgress.isComplete}
+                    className="inline-flex items-center gap-2 rounded-[8px] border border-[#2B3342] bg-[#1C222D] px-3.5 py-2 text-xs font-semibold text-[#F2F4F8] transition-colors duration-150 hover:border-[#10B981]"
+                  >
+                    <RefreshCw
+                      className={`h-4 w-4 text-[#10B981] ${
+                        scanProgress !== null && !scanProgress.isComplete ? 'animate-spin' : ''
+                      }`}
+                    />
+                    <span>Rescan All Now</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Standard ~/Music Shortcut */}
+              {defaultMusicDirExists && defaultMusicDirPath && !libraryFolders.some((f) => f.path === defaultMusicDirPath) && (
+                <div className="flex items-center justify-between rounded-[10px] border border-[#2B3342] bg-[#0B0D10] px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <Folder className="h-4 w-4 text-[#10B981]" />
+                    <div>
+                      <div className="text-xs font-medium text-[#F2F4F8]">Standard Music Directory Detected</div>
+                      <div className="font-mono text-[11px] text-[#9AA4B2]">{defaultMusicDirPath}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void addMusicFolder(defaultMusicDirPath)}
+                    className="px-3 py-1.5 rounded-[6px] border border-[#10B981] bg-[#10B981]/10 text-xs font-medium text-[#10B981] hover:bg-[#10B981]/20 transition-colors"
+                  >
+                    Add ~/Music
+                  </button>
+                </div>
+              )}
+
+              {/* Live Scan Progress */}
+              {scanProgress && !scanProgress.isComplete && (
+                <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4">
+                  <div className="flex items-center justify-between text-xs mb-2">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-[#10B981]" />
+                      <span className="font-medium text-[#F2F4F8]">Indexing Music Files...</span>
+                    </div>
+                    <span className="font-mono text-[#10B981] text-xs">
+                      {scanProgress.filesScanned} files scanned · {scanProgress.tracksAdded} tracks added
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-[#1C222D] overflow-hidden">
+                    <div className="h-full bg-[#10B981] w-2/3 animate-pulse" />
+                  </div>
+                  {scanProgress.currentDirectory && (
+                    <div className="mt-1.5 font-mono text-[10.5px] text-[#9AA4B2] truncate">
+                      Directory: {scanProgress.currentDirectory}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Watched Folders Table / List */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-[#9AA4B2] uppercase tracking-wider">
+                  Watched Folders ({libraryFolders.length})
+                </h3>
+                {libraryFolders.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center rounded-[10px] border border-dashed border-[#2B3342] py-8 text-center bg-[#0B0D10]/40">
+                    <Folder className="h-8 w-8 text-[#9AA4B2] opacity-50 mb-2" />
+                    <p className="text-xs text-[#9AA4B2]">No music library folders configured yet.</p>
+                    <p className="text-[11px] text-[#6B7280] mt-1">
+                      Click "+ Add Music Folder" above to choose a directory.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {libraryFolders.map((folder) => (
+                      <div
+                        key={folder.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-3.5"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Folder className="h-4 w-4 text-[#10B981] shrink-0" />
+                          <div className="truncate">
+                            <div className="font-mono text-xs font-medium text-[#F2F4F8] truncate">
+                              {folder.path}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[#9AA4B2]">
+                              <span className="mono-telemetry text-[#10B981] font-medium">
+                                {folder.trackCount} tracks
+                              </span>
+                              <span>•</span>
+                              <span>{folder.watchEnabled ? 'Filesystem watcher active' : 'Watcher paused'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={folder.watchEnabled}
+                              onChange={() => void toggleFolderWatch(folder.id, !folder.watchEnabled)}
+                              className="rounded border-[#2B3342] bg-[#14181F] text-[#10B981] focus:ring-[#10B981]"
+                            />
+                            <span className="text-xs text-[#9AA4B2]">Auto-Watch</span>
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => void removeLibraryFolder(folder.id)}
+                            className="p-1.5 text-[#9AA4B2] hover:text-[#EF4444] rounded hover:bg-[#1C222D] transition-colors"
+                            title="Remove folder from library"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* 3. API Keys & Online AI (Ubuntu Keyring / libsecret) */}
+          {section === 'credentials' && (
+            <section className="rounded-[14px] border border-[#2B3342] bg-[#14181F] p-5 space-y-5">
+              {/* Security Enclave Notice */}
+              <div className="rounded-[10px] border border-[#10B981]/40 bg-[#10B981]/10 p-4">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="h-5 w-5 text-[#10B981] shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-display text-xs font-bold uppercase tracking-wider text-[#10B981]">
+                      Ubuntu Secret Service (GNOME Keyring) Enclave
+                    </h3>
+                    <p className="mt-1 text-xs text-[#F2F4F8] leading-relaxed">
+                      All credentials are stored securely inside Ubuntu's native keyring via{' '}
+                      <span className="font-mono text-[#10B981]">libsecret</span>. Tokens are never written to plaintext JSON, SQLite, or browser localStorage. AuraHiFi transmits zero telemetry.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 1. Google Gemini API */}
+              <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-[#38BDF8]" />
+                    <label htmlFor="gemini-key" className="text-xs font-bold text-[#F2F4F8]">
+                      Google Gemini API Key
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                        credentialStatuses.gemini?.configured
+                          ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30'
+                          : 'bg-[#1C222D] text-[#9AA4B2] border border-[#2B3342]'
+                      }`}
+                    >
+                      {credentialStatuses.gemini?.configured
+                        ? `Configured (${credentialStatuses.gemini.maskedHint ?? 'saved'})`
+                        : 'Not Configured'}
+                    </span>
+                    <a
+                      href="https://aistudio.google.com/api-keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-[#38BDF8] hover:underline"
+                    >
+                      <span>Where to get this key</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <p className="text-[11.5px] text-[#9AA4B2]">
+                  Powers natural-language AI Smart Playlists. Post-May 2026 AI Studio keys and service account auth keys are supported.
+                </p>
+
+                {/* Gemini Model Selector */}
                 <div>
-                  <label htmlFor="acoustid-key" className="mb-1.5 block text-xs font-semibold text-[#F2F4F8]">
-                    AcoustID Chromaprint API Key
+                  <label htmlFor="gemini-model-select" className="block text-[11px] font-semibold text-[#9AA4B2] uppercase tracking-wider mb-1">
+                    Gemini AI Model
                   </label>
+                  <select
+                    id="gemini-model-select"
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                    className="w-full md:w-80 rounded-[6px] border border-[#2B3342] bg-[#14181F] px-3 py-1.5 text-xs text-[#F2F4F8] focus:border-[#38BDF8] focus:outline-none"
+                  >
+                    <option value="gemini-3.8-flash">gemini-3.8-flash (Recommended Default)</option>
+                    <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Free Tier Fast)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="gemini-key"
+                    type="password"
+                    value={geminiKeyInput}
+                    onChange={(e) => setGeminiKeyInput(e.target.value)}
+                    placeholder={credentialStatuses.gemini?.configured ? 'Enter new key to replace existing' : 'Enter Gemini API key'}
+                    className="flex-1 min-w-[200px] rounded-[6px] border border-[#2B3342] bg-[#14181F] px-3 py-2 font-mono text-xs text-[#F2F4F8] placeholder:text-[#6B7280] focus:border-[#38BDF8] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleTestKey('gemini', geminiKeyInput)}
+                    disabled={testingService === 'gemini'}
+                    className="px-3 py-2 rounded-[6px] border border-[#2B3342] bg-[#1C222D] text-xs font-semibold text-[#F2F4F8] hover:border-[#38BDF8] transition-colors"
+                  >
+                    {testingService === 'gemini' ? 'Testing...' : 'Test Key'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveKey('gemini', geminiKeyInput, geminiModel)}
+                    disabled={savingService === 'gemini' || !geminiKeyInput.trim()}
+                    className="px-4 py-2 rounded-[6px] bg-[#10B981] text-xs font-bold text-[#0B0D10] hover:bg-[#059669] transition-colors disabled:opacity-50"
+                  >
+                    Save Key
+                  </button>
+                  {credentialStatuses.gemini?.configured && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteKey('gemini')}
+                      className="px-3 py-2 rounded-[6px] border border-[#EF4444]/40 text-xs font-medium text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                {testResults.gemini && (
+                  <div
+                    className={`rounded-[6px] px-3 py-1.5 text-xs font-mono ${
+                      testResults.gemini.ok
+                        ? 'bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/30'
+                        : 'bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/30'
+                    }`}
+                  >
+                    {testResults.gemini.ok ? '✓ ' : '✗ '}
+                    {testResults.gemini.message}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. AcoustID Chromaprint API */}
+              <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4 text-[#10B981]" />
+                    <label htmlFor="acoustid-key" className="text-xs font-bold text-[#F2F4F8]">
+                      AcoustID Chromaprint API Key
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                        credentialStatuses.acoustid?.configured
+                          ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30'
+                          : 'bg-[#1C222D] text-[#9AA4B2] border border-[#2B3342]'
+                      }`}
+                    >
+                      {credentialStatuses.acoustid?.configured
+                        ? `Configured (${credentialStatuses.acoustid.maskedHint ?? 'saved'})`
+                        : 'Not Configured'}
+                    </span>
+                    <a
+                      href="https://acoustid.org/login"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-[#38BDF8] hover:underline"
+                    >
+                      <span>Where to get this key</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <p className="text-[11.5px] text-[#9AA4B2]">
+                  Enables acoustic fingerprint lookup to identify unknown lossless tracks against MusicBrainz.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     id="acoustid-key"
                     type="password"
-                    value={acoustIdKey}
-                    onChange={(e) => setAcoustIdKey(e.target.value)}
-                    placeholder="Enter AcoustID client API key"
-                    className="w-full rounded-[6px] border border-[#2B3342] bg-[#0B0D10] px-3 py-2 mono-telemetry text-xs text-[#F2F4F8] placeholder:text-[#9AA4B2] focus:border-[#38BDF8] focus:outline-none"
+                    value={acoustIdKeyInput}
+                    onChange={(e) => setAcoustIdKeyInput(e.target.value)}
+                    placeholder={credentialStatuses.acoustid?.configured ? 'Enter new key to replace existing' : 'Enter AcoustID key'}
+                    className="flex-1 min-w-[200px] rounded-[6px] border border-[#2B3342] bg-[#14181F] px-3 py-2 font-mono text-xs text-[#F2F4F8] placeholder:text-[#6B7280] focus:border-[#38BDF8] focus:outline-none"
                   />
+                  <button
+                    type="button"
+                    onClick={() => void handleTestKey('acoustid', acoustIdKeyInput)}
+                    disabled={testingService === 'acoustid'}
+                    className="px-3 py-2 rounded-[6px] border border-[#2B3342] bg-[#1C222D] text-xs font-semibold text-[#F2F4F8] hover:border-[#38BDF8] transition-colors"
+                  >
+                    {testingService === 'acoustid' ? 'Testing...' : 'Test Key'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveKey('acoustid', acoustIdKeyInput)}
+                    disabled={savingService === 'acoustid' || !acoustIdKeyInput.trim()}
+                    className="px-4 py-2 rounded-[6px] bg-[#10B981] text-xs font-bold text-[#0B0D10] hover:bg-[#059669] transition-colors disabled:opacity-50"
+                  >
+                    Save Key
+                  </button>
+                  {credentialStatuses.acoustid?.configured && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteKey('acoustid')}
+                      className="px-3 py-2 rounded-[6px] border border-[#EF4444]/40 text-xs font-medium text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
 
-                <div>
-                  <label htmlFor="mb-contact-email" className="mb-1.5 block text-xs font-semibold text-[#F2F4F8]">
-                    MusicBrainz Contact Email (RFC User-Agent Header)
-                  </label>
+                {testResults.acoustid && (
+                  <div
+                    className={`rounded-[6px] px-3 py-1.5 text-xs font-mono ${
+                      testResults.acoustid.ok
+                        ? 'bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/30'
+                        : 'bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/30'
+                    }`}
+                  >
+                    {testResults.acoustid.ok ? '✓ ' : '✗ '}
+                    {testResults.acoustid.message}
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Discogs Personal Access Token */}
+              <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4 text-[#10B981]" />
+                    <label htmlFor="discogs-pat" className="text-xs font-bold text-[#F2F4F8]">
+                      Discogs Personal Access Token (PAT)
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                        credentialStatuses.discogs?.configured
+                          ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30'
+                          : 'bg-[#1C222D] text-[#9AA4B2] border border-[#2B3342]'
+                      }`}
+                    >
+                      {credentialStatuses.discogs?.configured
+                        ? `Configured (${credentialStatuses.discogs.maskedHint ?? 'saved'})`
+                        : 'Not Configured'}
+                    </span>
+                    <a
+                      href="https://discogs.com/settings/developers"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-[#38BDF8] hover:underline"
+                    >
+                      <span>Where to get this token</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <p className="text-[11.5px] text-[#9AA4B2]">
+                  Used for rich vinyl and master release credits, matrix numbers, and catalog pressing information.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="discogs-pat"
+                    type="password"
+                    value={discogsPatInput}
+                    onChange={(e) => setDiscogsPatInput(e.target.value)}
+                    placeholder={credentialStatuses.discogs?.configured ? 'Enter new token to replace existing' : 'Enter Discogs PAT'}
+                    className="flex-1 min-w-[200px] rounded-[6px] border border-[#2B3342] bg-[#14181F] px-3 py-2 font-mono text-xs text-[#F2F4F8] placeholder:text-[#6B7280] focus:border-[#38BDF8] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleTestKey('discogs', discogsPatInput)}
+                    disabled={testingService === 'discogs'}
+                    className="px-3 py-2 rounded-[6px] border border-[#2B3342] bg-[#1C222D] text-xs font-semibold text-[#F2F4F8] hover:border-[#38BDF8] transition-colors"
+                  >
+                    {testingService === 'discogs' ? 'Testing...' : 'Test Token'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveKey('discogs', discogsPatInput)}
+                    disabled={savingService === 'discogs' || !discogsPatInput.trim()}
+                    className="px-4 py-2 rounded-[6px] bg-[#10B981] text-xs font-bold text-[#0B0D10] hover:bg-[#059669] transition-colors disabled:opacity-50"
+                  >
+                    Save Token
+                  </button>
+                  {credentialStatuses.discogs?.configured && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteKey('discogs')}
+                      className="px-3 py-2 rounded-[6px] border border-[#EF4444]/40 text-xs font-medium text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                {testResults.discogs && (
+                  <div
+                    className={`rounded-[6px] px-3 py-1.5 text-xs font-mono ${
+                      testResults.discogs.ok
+                        ? 'bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/30'
+                        : 'bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/30'
+                    }`}
+                  >
+                    {testResults.discogs.ok ? '✓ ' : '✗ '}
+                    {testResults.discogs.message}
+                  </div>
+                )}
+              </div>
+
+              {/* 4. MusicBrainz Contact Email */}
+              <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4 text-[#10B981]" />
+                    <label htmlFor="mb-contact-email" className="text-xs font-bold text-[#F2F4F8]">
+                      MusicBrainz Contact Email (RFC User-Agent Header)
+                    </label>
+                  </div>
+                  <a
+                    href="https://musicbrainz.org"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-[#38BDF8] hover:underline"
+                  >
+                    <span>musicbrainz.org</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+
+                <p className="text-[11.5px] text-[#9AA4B2]">
+                  Required by MusicBrainz API terms in User-Agent headers to prevent IP-level rate-limiting and HTTP 503 throttling.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     id="mb-contact-email"
                     type="email"
-                    value={mbContactEmail}
-                    onChange={(e) => setMbContactEmail(e.target.value)}
+                    value={mbContactInput}
+                    onChange={(e) => setMbContactInput(e.target.value)}
                     placeholder="you@domain.org"
-                    className="w-full rounded-[6px] border border-[#2B3342] bg-[#0B0D10] px-3 py-2 mono-telemetry text-xs text-[#F2F4F8] placeholder:text-[#9AA4B2] focus:border-[#38BDF8] focus:outline-none"
+                    className="flex-1 min-w-[200px] rounded-[6px] border border-[#2B3342] bg-[#14181F] px-3 py-2 font-mono text-xs text-[#F2F4F8] placeholder:text-[#6B7280] focus:border-[#38BDF8] focus:outline-none"
                   />
-                </div>
-
-                {credFeedback && (
-                  <div
-                    role="status"
-                    className={`rounded-[8px] border px-3 py-2 text-xs ${
-                      credFeedback.type === 'ok'
-                        ? 'border-[#10B981]/50 bg-[#10B981]/10 text-[#F2F4F8]'
-                        : 'border-[#EF4444]/50 bg-[#EF4444]/10 text-[#FCA5A5]'
-                    }`}
-                  >
-                    {credFeedback.text}
-                  </div>
-                )}
-
-                <div className="flex justify-end border-t border-[#2B3342] pt-3">
                   <button
-                    type="submit"
-                    className="rounded-[8px] bg-[#10B981] px-4 py-2 text-xs font-semibold text-[#06130E] hover:bg-[#34D399]"
+                    type="button"
+                    onClick={() => void handleSaveKey('musicbrainz_contact', mbContactInput)}
+                    disabled={savingService === 'musicbrainz_contact' || !mbContactInput.includes('@')}
+                    className="px-4 py-2 rounded-[6px] bg-[#10B981] text-xs font-bold text-[#0B0D10] hover:bg-[#059669] transition-colors disabled:opacity-50"
                   >
-                    Save Local Credentials
+                    Save Email
                   </button>
                 </div>
-              </form>
+              </div>
+            </section>
+          )}
+
+          {/* 4. Hover Help & Accessibility Section */}
+          {section === 'hover_help' && (
+            <section className="rounded-[14px] border border-[#2B3342] bg-[#14181F] p-5 space-y-5">
+              <div className="border-b border-[#2B3342] pb-4">
+                <h2 className="font-display text-base font-semibold text-[#F2F4F8]">
+                  Plain-Language Hover Help &amp; Explanations
+                </h2>
+                <p className="mt-0.5 text-xs text-[#9AA4B2]">
+                  Interactive contextual tooltips that explain audiophile concepts, hardware flags, and DSP terms in plain, jargon-free language.
+                </p>
+              </div>
+
+              {/* Master ON/OFF Toggle */}
+              <div className="flex items-center justify-between gap-4 rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4">
+                <div>
+                  <div className="text-sm font-medium text-[#F2F4F8]">Enable Hover Help Tooltips</div>
+                  <div className="mt-0.5 text-xs text-[#9AA4B2]">
+                    Displays non-jargon explanations when hovering or focusing on audio settings, hardware controls, and signal badges.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={hoverHelpEnabled}
+                  onClick={() => setHoverHelpEnabled(!hoverHelpEnabled)}
+                  className={`rounded-full px-3 py-1 mono-telemetry text-xs font-semibold transition-colors ${
+                    hoverHelpEnabled
+                      ? 'bg-[#10B981] text-[#06130E]'
+                      : 'border border-[#2B3342] bg-[#1C222D] text-[#9AA4B2]'
+                  }`}
+                >
+                  {hoverHelpEnabled ? 'ENABLED' : 'DISABLED'}
+                </button>
+              </div>
+
+              {/* Hover Delay Slider */}
+              <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="hover-delay-slider" className="text-sm font-medium text-[#F2F4F8]">
+                    Hover Trigger Delay
+                  </label>
+                  <span className="font-mono text-xs font-semibold text-[#10B981]">
+                    {hoverHelpDelayMs} ms
+                  </span>
+                </div>
+                <p className="text-xs text-[#9AA4B2]">
+                  How long the cursor must rest on an element before the explanation appears (100 ms – 800 ms).
+                </p>
+                <input
+                  id="hover-delay-slider"
+                  type="range"
+                  min="100"
+                  max="800"
+                  step="50"
+                  value={hoverHelpDelayMs}
+                  onChange={(e) => setHoverHelpDelayMs(Number(e.target.value))}
+                  className="w-full accent-[#10B981] cursor-pointer"
+                />
+              </div>
+
+              {/* Preview Cards */}
+              <div className="rounded-[10px] border border-[#2B3342] bg-[#0B0D10] p-4 space-y-3">
+                <h3 className="text-xs font-semibold text-[#9AA4B2] uppercase tracking-wider">
+                  Live Preview Examples
+                </h3>
+                <p className="text-xs text-[#9AA4B2]">
+                  Hover over the terms below to see how plain-language explanations render in real time:
+                </p>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <ExplainTooltip termId="bit_perfect">
+                    <span className="px-3 py-1.5 rounded-[6px] border border-[#10B981]/40 bg-[#10B981]/10 text-xs font-mono font-semibold text-[#10B981] cursor-help">
+                      Bit-Perfect Exclusive
+                    </span>
+                  </ExplainTooltip>
+
+                  <ExplainTooltip termId="sofa_hrtf">
+                    <span className="px-3 py-1.5 rounded-[6px] border border-[#38BDF8]/40 bg-[#38BDF8]/10 text-xs font-mono font-semibold text-[#38BDF8] cursor-help">
+                      SOFA HRTF Binaural
+                    </span>
+                  </ExplainTooltip>
+
+                  <ExplainTooltip termId="ebu_r128">
+                    <span className="px-3 py-1.5 rounded-[6px] border border-[#2B3342] bg-[#1C222D] text-xs font-mono font-semibold text-[#F2F4F8] cursor-help">
+                      EBU R128 Loudness
+                    </span>
+                  </ExplainTooltip>
+                </div>
+              </div>
             </section>
           )}
 

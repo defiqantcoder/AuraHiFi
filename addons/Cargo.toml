@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "metadata-enricher",
+    "lyrics-art",
+    "smart-playlists",
+    "adversarial-fixture",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

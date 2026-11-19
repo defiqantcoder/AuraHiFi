@@ -1,0 +1,107 @@
+name: Release Packages
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-packages:
+    name: Build Release Bundles (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Explicitly pin ubuntu-24.04 (x64) and ubuntu-24.04-arm (ARM64)
+        # to ensure glibc backward compatibility across both Ubuntu 24.04 LTS and 26.04 LTS
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Node.js 24 LTS
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@82a92a6e8fbeee08c636ad5c3fcc50714549247a # v2.7.5
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install Ubuntu native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            libasound2-dev \
+            libudev-dev \
+            libdbus-1-dev \
+            pkg-config \
+            patchelf \
+            libfuse2 \
+            squashfs-tools
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Build and bundle first-party signed Wasm add-ons
+        run: |
+          cargo build --release --target wasm32-unknown-unknown --manifest-path addons/Cargo.toml
+          mkdir -p src-tauri/addons/dist/metadata-enricher
+          mkdir -p src-tauri/addons/dist/lyrics-art
+          mkdir -p src-tauri/addons/dist/smart-playlists
+          cp addons/metadata-enricher/manifest.json src-tauri/addons/dist/metadata-enricher/
+          cp addons/lyrics-art/manifest.json src-tauri/addons/dist/lyrics-art/
+          cp addons/smart-playlists/manifest.json src-tauri/addons/dist/smart-playlists/
+          cp addons/metadata-enricher/plugin.wasm src-tauri/addons/dist/metadata-enricher/
+          cp addons/lyrics-art/plugin.wasm src-tauri/addons/dist/lyrics-art/
+          cp addons/smart-playlists/plugin.wasm src-tauri/addons/dist/smart-playlists/
+
+      - name: Build Tauri .deb and AppImage
+        uses: tauri-apps/tauri-action@850259972322a36b3f94689698d4db6b0cf91f74 # v0.5.18
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'AuraHiFi ${{ github.ref_name }}'
+          releaseBody: 'Production release of AuraHiFi bit-perfect and spatial audio player for Ubuntu 24.04 & 26.04 LTS.'
+          releaseDraft: true
+          prerelease: false
+          args: --bundles deb,appimage
+
+      - name: Generate SHA256 checksums
+        run: |
+          mkdir -p dist-release
+          find src-tauri/target/release/bundle/ -type f \( -name "*.deb" -o -name "*.AppImage" \) -exec cp {} dist-release/ \;
+          cd dist-release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload SHA256 checksums to Release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9ec87453c663f5394d2537e1 # v2.2.1
+        with:
+          draft: true
+          files: dist-release/SHA256SUMS.txt

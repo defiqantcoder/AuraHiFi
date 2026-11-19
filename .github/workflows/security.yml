@@ -1,0 +1,92 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly on Mondays at 04:00 UTC
+    - cron: '0 4 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  supply-chain-and-sandbox:
+    name: Supply-Chain & Sandbox Security
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Dependency Review (PRs only)
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@5a2ce3f5b92ee19cbb1541a4984b76d921601d7c # v4.3.4
+        with:
+          fail-on-severity: high
+
+      - name: Install Node.js 24 LTS
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@82a92a6e8fbeee08c636ad5c3fcc50714549247a # v2.7.5
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install Ubuntu native packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            libasound2-dev \
+            libudev-dev \
+            libdbus-1-dev \
+            pkg-config \
+            patchelf \
+            libfuse2
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run npm security audit
+        run: npm audit --audit-level=high
+
+      - name: Install cargo-audit and cargo-deny
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall -y --no-confirm cargo-audit cargo-deny
+
+      - name: Run RustSec Cargo Audit
+        run: cargo audit
+
+      - name: Run Cargo Deny (Licenses, Bans, Advisories, Sources)
+        run: cargo deny check
+
+      - name: Build all Wasm add-ons and adversarial fixture
+        run: cargo build --release --target wasm32-unknown-unknown --manifest-path addons/Cargo.toml
+
+      - name: Run Tauri Capability ACL & CSP Audit Test
+        run: cargo test --test tauri_security_audit --release
+
+      - name: Run Adversarial Wasm Sandbox Security Test
+        run: cargo test --test addon_sandbox_security --release

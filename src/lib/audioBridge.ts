@@ -14,6 +14,7 @@ import {
   formatSampleRate,
   requiresSampleRateSwitchLock,
 } from './signalPathEngine';
+import { generatePipeWireConfigs } from './studioHelpers';
 import { TauriAudioBridge } from './tauriAudioBridge';
 
 // ============================================================================
@@ -357,6 +358,80 @@ export interface LyricsPayload {
   lines: SyncedLyricLine[];
 }
 
+export interface GeminiApiKeyStatus {
+  configured: boolean;
+  maskedKey: string | null;
+  storageBackend: 'ubuntu_secret_service' | 'stub_memory';
+  updatedAtMs: number | null;
+}
+
+export interface TooltipExplanation {
+  term: string;
+  title: string;
+  summary: string;
+  technicalNote: string;
+  source: 'builtin_reference' | 'gemini_assisted';
+}
+
+export interface MetadataEnrichRequest {
+  useAcoustId: boolean;
+  fetchCoverArt: boolean;
+  fetchSyncedLyrics: boolean;
+  respectRateLimits: boolean;
+}
+
+export interface MetadataEnrichResult {
+  trackId: string;
+  addonId: string;
+  status: 'matched' | 'rate_limited_backoff' | 'not_found';
+  acoustIdConfidencePct: number;
+  mbidRecording: string | null;
+  mbidRelease: string | null;
+  proposedFields: Record<string, string>;
+  rateLimitNote: string;
+  executedAtMs: number;
+}
+
+export interface LibraryFolder {
+  id: string;
+  path: string;
+  trackCount: number;
+  watchEnabled: boolean;
+  lastScannedAt?: number;
+}
+
+export interface OnboardingStatus {
+  completed: boolean;
+  folderCount: number;
+  trackCount: number;
+  defaultMusicDirExists: boolean;
+  defaultMusicDirPath?: string;
+}
+
+export interface ScanProgressEvent {
+  jobId: string;
+  currentDirectory: string;
+  filesScanned: number;
+  tracksAdded: number;
+  isComplete: boolean;
+  errorMessage?: string;
+}
+
+export interface CredentialStatus {
+  provider: string;
+  configured: boolean;
+  maskedHint?: string;
+  storageBackend: string;
+  updatedAtMs?: number;
+}
+
+export interface CredentialCheckResult {
+  provider: string;
+  valid: boolean;
+  message: string;
+  checkedAtMs: number;
+}
+
 export type TransportCommand =
   | { type: 'Play'; trackId?: string }
   | { type: 'Pause' }
@@ -396,6 +471,41 @@ export interface AudioBridge {
   getPlaybackState(): Promise<PlaybackState>;
   subscribeTelemetry(cb: (frame: TelemetryFrame) => void): () => void;
   subscribeHardwareEvents(cb: (event: HardwareEvent) => void): () => void;
+
+  // Onboarding, Native Folder Picker & Library Folder Management
+  pickMusicFolder(): Promise<string[] | null>;
+  getOnboardingStatus(): Promise<OnboardingStatus>;
+  completeOnboarding(audioMode?: AudioMode): Promise<void>;
+  listLibraryFolders(): Promise<LibraryFolder[]>;
+  addLibraryFolder(path: string, autoWatch?: boolean): Promise<LibraryFolder>;
+  removeLibraryFolder(id: string): Promise<void>;
+  setLibraryFolderWatch(id: string, autoWatch: boolean): Promise<void>;
+  subscribeScanProgress(cb: (event: ScanProgressEvent) => void): () => void;
+
+  // OS Keyring Secret Storage
+  setApiCredential(service: string, secret: string, model?: string): Promise<void>;
+  getApiCredentialStatus(service: string): Promise<CredentialStatus>;
+  deleteApiCredential(service: string): Promise<void>;
+  testApiCredential(service: string, secret?: string): Promise<CredentialCheckResult>;
+
+  // Gemini API Key, Hover Tooltips Explainer, Metadata Enricher, and PipeWire Helper
+  getGeminiApiKeyStatus(): Promise<GeminiApiKeyStatus>;
+  setGeminiApiKey(apiKey: string): Promise<GeminiApiKeyStatus>;
+  clearGeminiApiKey(): Promise<GeminiApiKeyStatus>;
+  explainAudioTerm(term: string, contextJson?: string): Promise<TooltipExplanation>;
+  enrichTrackMetadata(
+    trackId: string,
+    options: MetadataEnrichRequest
+  ): Promise<MetadataEnrichResult>;
+  generatePipeWireConfig(
+    alsaId?: string,
+    ringBufferMb?: number
+  ): Promise<{
+    pipewireFilePath: string;
+    pipewireContent: string;
+    wireplumberFilePath: string;
+    wireplumberContent: string;
+  }>;
 
   // Hardware & Linux IPC Diagnostic Edge-Case Triggers (available in MockAudioBridge)
   setDeviceDsdMode(alsaId: string, dsdMode: DsdCapability): Promise<SignalPathState>;
@@ -1071,12 +1181,131 @@ export class MockAudioBridge implements AudioBridge {
 
   private telemetryListeners = new Set<(frame: TelemetryFrame) => void>();
   private hardwareListeners = new Set<(event: HardwareEvent) => void>();
+  private scanProgressListeners = new Set<(event: ScanProgressEvent) => void>();
   private telemetryTimer: ReturnType<typeof setInterval> | null = null;
   private lastTickMs = Date.now();
   private phase = 0;
 
+  private onboardingCompleted = false;
+  private libraryFolders: LibraryFolder[] = [
+    {
+      id: 'folder-demo-01',
+      path: '/home/sinnoh/Music',
+      trackCount: 4,
+      watchEnabled: true,
+      lastScannedAt: Date.now(),
+    },
+  ];
+  private credentials: Record<string, { secret: string; model?: string }> = {};
+
   constructor() {
     this.syncVolumeLock();
+  }
+
+  async pickMusicFolder(): Promise<string[] | null> {
+    return ['/home/sinnoh/Music'];
+  }
+
+  async getOnboardingStatus(): Promise<OnboardingStatus> {
+    return {
+      completed: this.onboardingCompleted,
+      folderCount: this.libraryFolders.length,
+      trackCount: this.tracks.length,
+      defaultMusicDirExists: true,
+      defaultMusicDirPath: '/home/sinnoh/Music',
+    };
+  }
+
+  async completeOnboarding(audioMode?: AudioMode): Promise<void> {
+    this.onboardingCompleted = true;
+    if (audioMode) {
+      await this.setAudioMode(audioMode);
+    }
+  }
+
+  async listLibraryFolders(): Promise<LibraryFolder[]> {
+    return [...this.libraryFolders];
+  }
+
+  async addLibraryFolder(path: string, autoWatch = true): Promise<LibraryFolder> {
+    const existing = this.libraryFolders.find((f) => f.path === path);
+    if (existing) return existing;
+    const folder: LibraryFolder = {
+      id: `folder-${Date.now()}`,
+      path,
+      trackCount: this.tracks.length,
+      watchEnabled: autoWatch,
+      lastScannedAt: Date.now(),
+    };
+    this.libraryFolders.push(folder);
+    this.emitScanProgress({
+      jobId: `job-${Date.now()}`,
+      currentDirectory: path,
+      filesScanned: 12,
+      tracksAdded: this.tracks.length,
+      isComplete: true,
+    });
+    return folder;
+  }
+
+  async removeLibraryFolder(id: string): Promise<void> {
+    this.libraryFolders = this.libraryFolders.filter((f) => f.id !== id);
+  }
+
+  async setLibraryFolderWatch(id: string, autoWatch: boolean): Promise<void> {
+    const f = this.libraryFolders.find((x) => x.id === id);
+    if (f) f.watchEnabled = autoWatch;
+  }
+
+  subscribeScanProgress(cb: (event: ScanProgressEvent) => void): () => void {
+    this.scanProgressListeners.add(cb);
+    return () => this.scanProgressListeners.delete(cb);
+  }
+
+  private emitScanProgress(event: ScanProgressEvent) {
+    this.scanProgressListeners.forEach((cb) => cb(event));
+  }
+
+  async setApiCredential(service: string, secret: string, model?: string): Promise<void> {
+    this.credentials[service] = { secret, model };
+    if (service === 'gemini') {
+      await this.setGeminiApiKey(secret);
+    }
+  }
+
+  async getApiCredentialStatus(service: string): Promise<CredentialStatus> {
+    const cred = this.credentials[service];
+    const configured = Boolean(cred?.secret && cred.secret.length > 0);
+    const maskedHint = configured && cred.secret.length > 6
+      ? `${cred.secret.slice(0, 3)}••••${cred.secret.slice(-3)}`
+      : configured ? '••••••••' : undefined;
+    return {
+      provider: service,
+      configured,
+      maskedHint,
+      storageBackend: 'Ubuntu Secret Service (GNOME Keyring)',
+      updatedAtMs: Date.now(),
+    };
+  }
+
+  async deleteApiCredential(service: string): Promise<void> {
+    delete this.credentials[service];
+    if (service === 'gemini') {
+      await this.clearGeminiApiKey();
+    }
+  }
+
+  async testApiCredential(service: string, secret?: string): Promise<CredentialCheckResult> {
+    const key = secret ?? this.credentials[service]?.secret ?? '';
+    const valid = key.trim().length >= 8;
+    return {
+      provider: service,
+      valid,
+      message: valid
+        ? 'Key validated successfully via secure OS keyring'
+        : 'Key is invalid or too short (minimum 8 characters)',
+      checkedAtMs: Date.now(),
+    };
   }
 
   private getActiveDevice(): AudioDeviceInfo | null {
@@ -1316,15 +1545,15 @@ export class MockAudioBridge implements AudioBridge {
       timestampMs: Date.now(),
       fromMode,
       toMode: mode,
-      rampMs: 240,
+      rampMs: 50,
       message:
         mode === 'bit_perfect'
-          ? 'Atomic 240ms mute ramp complete — DSP bypassed, volume locked at 0.0 dB.'
-          : 'Atomic 240ms mute ramp complete — 64-bit Spatial DSP active, software volume unlocked.',
+          ? 'Atomic 50ms mute ramp complete — DSP bypassed, volume locked at 0.0 dB.'
+          : 'Atomic 50ms mute ramp complete — 64-bit Spatial DSP active, software volume unlocked.',
     });
 
-    // Simulate atomic 180ms ramp completion
-    await new Promise((resolve) => setTimeout(resolve, 180));
+    // Simulate atomic 50ms cosine mute ramp completion
+    await new Promise((resolve) => setTimeout(resolve, 50));
     this.isTransitioning = false;
     this.transitionProgress = 1;
     this.syncVolumeLock();
@@ -1782,6 +2011,102 @@ export class MockAudioBridge implements AudioBridge {
     });
     this.emitSignalPathChanged();
     return this.buildSignalPath();
+  }
+
+  private geminiApiKey: string | null = null;
+  private geminiKeyUpdatedAtMs: number | null = null;
+
+  async getGeminiApiKeyStatus(): Promise<GeminiApiKeyStatus> {
+    return {
+      configured: Boolean(this.geminiApiKey),
+      maskedKey: this.geminiApiKey
+        ? `${this.geminiApiKey.slice(0, 4)}••••${this.geminiApiKey.slice(-4)}`
+        : null,
+      storageBackend: 'stub_memory',
+      updatedAtMs: this.geminiKeyUpdatedAtMs,
+    };
+  }
+
+  async setGeminiApiKey(apiKey: string): Promise<GeminiApiKeyStatus> {
+    const trimmed = apiKey.trim();
+    this.geminiApiKey = trimmed.length > 0 ? trimmed : null;
+    this.geminiKeyUpdatedAtMs = this.geminiApiKey ? Date.now() : null;
+    return this.getGeminiApiKeyStatus();
+  }
+
+  async clearGeminiApiKey(): Promise<GeminiApiKeyStatus> {
+    this.geminiApiKey = null;
+    this.geminiKeyUpdatedAtMs = null;
+    return this.getGeminiApiKeyStatus();
+  }
+
+  async explainAudioTerm(term: string, _contextJson?: string): Promise<TooltipExplanation> {
+    const normalized = term.trim().toLowerCase();
+    const glossary: Record<string, { title: string; summary: string; technicalNote: string }> = {
+      'alsa exclusive': {
+        title: 'ALSA Hardware Exclusive (hw:)',
+        summary: 'Streams unmodified PCM/DSD directly to the USB DAC hardware ring buffer.',
+        technicalNote: 'Acquires org.freedesktop.ReserveDevice1 via D-Bus so PipeWire releases only the target DAC.',
+      },
+      'dop': {
+        title: 'DSD over PCM (DoP)',
+        summary: 'Encapsulates 1-bit DSD frames inside 24-bit PCM containers with 0x05/0xFA markers.',
+        technicalNote: 'Bit-exact when software volume is locked at 0.0 dB and zero DSP/SRC is applied.',
+      },
+      'sofa hrtf': {
+        title: 'SOFA HRTF Binaural Rendering',
+        summary: 'Convolves 3D spatial objects and channels with head-related transfer functions in-process.',
+        technicalNote: 'Executed in Rust (audionimbus / Steam Audio) without relying on PipeWire sofa filter-chain.',
+      },
+    };
+    const hit = glossary[normalized];
+    return {
+      term,
+      title: hit?.title ?? term,
+      summary:
+        hit?.summary ??
+        `Reference audiophile telemetry term (${term}) evaluated by AuraHiFi signal-path diagnostics.`,
+      technicalNote:
+        hit?.technicalNote ??
+        'All signal-path claims reflect verified ALSA/DSP state; never extrapolated.',
+      source: this.geminiApiKey ? 'gemini_assisted' : 'builtin_reference',
+    };
+  }
+
+  async enrichTrackMetadata(
+    trackId: string,
+    options: MetadataEnrichRequest
+  ): Promise<MetadataEnrichResult> {
+    const track = this.tracks.find((t) => t.id === trackId);
+    return {
+      trackId,
+      addonId: 'metadata-enricher',
+      status: track ? 'matched' : 'not_found',
+      acoustIdConfidencePct: track && options.useAcoustId ? 98 : 0,
+      mbidRecording: track?.mbidRecording ?? null,
+      mbidRelease: track ? '4f39a1c8-80e2-45e0-a611-29b9f1080c41' : null,
+      proposedFields: track
+        ? {
+            album: track.album,
+            artist: track.artist,
+            genre: track.genre,
+            year: String(track.year),
+          }
+        : {},
+      rateLimitNote: options.respectRateLimits
+        ? 'MusicBrainz token bucket enforced (<= 1 req/s, 1,050 ms spacing).'
+        : 'Rate-limit override ignored by Rust host safety policy (<= 1 req/s enforced).',
+      executedAtMs: Date.now(),
+    };
+  }
+
+  async generatePipeWireConfig(alsaId?: string, ringBufferMb = 128) {
+    const dev =
+      (alsaId ? this.devices.find((d) => d.alsaId === alsaId) : null) ??
+      this.devices.find((d) => d.alsaId === this.activeDeviceId) ??
+      this.devices[0] ??
+      null;
+    return generatePipeWireConfigs(dev, ringBufferMb);
   }
 
   async simulateMusicBrainz503Backoff(): Promise<{ retryAfterMs: number; attempt: number; message: string }> {

@@ -15,17 +15,26 @@ import type {
   AudioBridge,
   AudioDeviceInfo,
   AudioMode,
+  CredentialCheckResult,
+  CredentialStatus,
   DacProbeReport,
   DsdCapability,
+  GeminiApiKeyStatus,
   HardwareEvent,
   InstalledAddon,
+  LibraryFolder,
   LyricsPayload,
+  MetadataEnrichRequest,
+  MetadataEnrichResult,
+  OnboardingStatus,
   PlaybackState,
   ScanJobId,
+  ScanProgressEvent,
   SignalPathState,
   SmartPlaylistQuery,
   SpatialConfig,
   TelemetryFrame,
+  TooltipExplanation,
   TrackSummary,
   TransportCommand,
 } from './audioBridge';
@@ -39,16 +48,11 @@ interface TauriCoreModule {
   Channel: new <T>() => TauriChannelLike<T>;
 }
 
-const TAURI_CORE_MODULE_ID = '@tauri-apps/api/core';
-
 let cachedTauriCorePromise: Promise<TauriCoreModule> | null = null;
 
 async function loadTauriCore(): Promise<TauriCoreModule> {
   if (!cachedTauriCorePromise) {
-    // Dynamic specifier prevents Rollup/Vite from trying to statically resolve
-    // `@tauri-apps/api/core` during browser-only preview builds.
-    const specifier: string = TAURI_CORE_MODULE_ID;
-    cachedTauriCorePromise = import(/* @vite-ignore */ specifier) as Promise<TauriCoreModule>;
+    cachedTauriCorePromise = import('@tauri-apps/api/core') as Promise<TauriCoreModule>;
   }
   return cachedTauriCorePromise;
 }
@@ -93,6 +97,89 @@ export class TauriAudioBridge implements AudioBridge {
 
   scanLibrary(paths: string[]): Promise<ScanJobId> {
     return this.invokeCmd<ScanJobId>('scan_library', { paths });
+  }
+
+  async pickMusicFolder(): Promise<string[] | null> {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: true,
+        multiple: true,
+        title: 'Select Music Folders',
+      });
+      if (!selected) return null;
+      return Array.isArray(selected) ? selected : [selected];
+    } catch (err) {
+      console.warn('Native folder picker error or fallback:', err);
+      return null;
+    }
+  }
+
+  getOnboardingStatus(): Promise<OnboardingStatus> {
+    return this.invokeCmd<OnboardingStatus>('get_onboarding_status');
+  }
+
+  completeOnboarding(audioMode?: AudioMode): Promise<void> {
+    return this.invokeCmd<void>('complete_onboarding', { audioMode });
+  }
+
+  listLibraryFolders(): Promise<LibraryFolder[]> {
+    return this.invokeCmd<LibraryFolder[]>('list_library_folders');
+  }
+
+  addLibraryFolder(path: string, autoWatch?: boolean): Promise<LibraryFolder> {
+    return this.invokeCmd<LibraryFolder>('add_library_folder', { path, autoWatch });
+  }
+
+  removeLibraryFolder(id: string): Promise<void> {
+    return this.invokeCmd<void>('remove_library_folder', { id });
+  }
+
+  setLibraryFolderWatch(id: string, autoWatch: boolean): Promise<void> {
+    return this.invokeCmd<void>('set_library_folder_watch', { id, autoWatch });
+  }
+
+  subscribeScanProgress(cb: (event: ScanProgressEvent) => void): () => void {
+    let active = true;
+    let subscriptionId: string | null = null;
+
+    loadTauriCore()
+      .then(async ({ invoke, Channel }) => {
+        if (!active) return;
+        const channel = new Channel<ScanProgressEvent>();
+        channel.onmessage = (event) => {
+          if (active) cb(event);
+        };
+        subscriptionId = await invoke<string>('subscribe_scan_progress', {
+          onProgress: channel,
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      if (subscriptionId) {
+        const id = subscriptionId;
+        subscriptionId = null;
+        void this.invokeCmd<void>('unsubscribe_scan_progress', { subscriptionId: id }).catch(() => {});
+      }
+    };
+  }
+
+  setApiCredential(service: string, secret: string, model?: string): Promise<void> {
+    return this.invokeCmd<void>('set_api_credential', { service, secret, model });
+  }
+
+  getApiCredentialStatus(service: string): Promise<CredentialStatus> {
+    return this.invokeCmd<CredentialStatus>('get_api_credential_status', { service });
+  }
+
+  deleteApiCredential(service: string): Promise<void> {
+    return this.invokeCmd<void>('delete_api_credential', { service });
+  }
+
+  testApiCredential(service: string, secret?: string): Promise<CredentialCheckResult> {
+    return this.invokeCmd<CredentialCheckResult>('test_api_credential', { service, secret });
   }
 
   listStoreAddons(): Promise<AddonCatalogItem[]> {
@@ -244,6 +331,41 @@ export class TauriAudioBridge implements AudioBridge {
 
   simulateUsbDacReconnect(): Promise<SignalPathState> {
     return this.invokeCmd<SignalPathState>('simulate_usb_dac_reconnect');
+  }
+
+  getGeminiApiKeyStatus(): Promise<GeminiApiKeyStatus> {
+    return this.invokeCmd<GeminiApiKeyStatus>('get_gemini_api_key_status');
+  }
+
+  setGeminiApiKey(apiKey: string): Promise<GeminiApiKeyStatus> {
+    return this.invokeCmd<GeminiApiKeyStatus>('set_gemini_api_key', { apiKey });
+  }
+
+  clearGeminiApiKey(): Promise<GeminiApiKeyStatus> {
+    return this.invokeCmd<GeminiApiKeyStatus>('clear_gemini_api_key');
+  }
+
+  explainAudioTerm(term: string, contextJson?: string): Promise<TooltipExplanation> {
+    return this.invokeCmd<TooltipExplanation>('explain_audio_term', { term, contextJson });
+  }
+
+  enrichTrackMetadata(
+    trackId: string,
+    options: MetadataEnrichRequest
+  ): Promise<MetadataEnrichResult> {
+    return this.invokeCmd<MetadataEnrichResult>('enrich_track_metadata', { trackId, options });
+  }
+
+  generatePipeWireConfig(
+    alsaId?: string,
+    ringBufferMb?: number
+  ): Promise<{
+    pipewireFilePath: string;
+    pipewireContent: string;
+    wireplumberFilePath: string;
+    wireplumberContent: string;
+  }> {
+    return this.invokeCmd('generate_pipewire_config', { alsaId, ringBufferMb });
   }
 
   simulateMusicBrainz503Backoff(): Promise<{

@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import {
   Disc3,
   Folder,
+  FolderPlus,
   FolderSearch,
+  Loader2,
   Play,
   Scissors,
   X,
@@ -11,6 +13,7 @@ import { useAudioStore } from '../store/useAudioStore';
 import { AlbumArtwork } from '../components/AlbumArtwork';
 import { formatSampleRate, formatTimecode } from '../lib/signalPathEngine';
 import type { TrackSummary } from '../lib/audioBridge';
+import { ExplainTooltip } from '../components/ui/ExplainTooltip';
 
 type LibraryTab = 'albums' | 'artists' | 'tracks' | 'hires_dsd' | 'atmos' | 'folders_cue';
 type FormatFilterPill = 'all' | 'flac24' | 'dsd' | 'atmos';
@@ -46,8 +49,14 @@ export function LibraryView() {
   const tracks = useAudioStore((s) => s.tracks);
   const playback = useAudioStore((s) => s.playback);
   const playTrack = useAudioStore((s) => s.playTrack);
-  const scanLibrary = useAudioStore((s) => s.scanLibrary);
   const lastScanJob = useAudioStore((s) => s.lastScanJob);
+  const pickAndAddFolder = useAudioStore((s) => s.pickAndAddFolder);
+  const addMusicFolder = useAudioStore((s) => s.addMusicFolder);
+  const rescanAllFolders = useAudioStore((s) => s.rescanAllFolders);
+  const libraryFolders = useAudioStore((s) => s.libraryFolders);
+  const defaultMusicDirExists = useAudioStore((s) => s.defaultMusicDirExists);
+  const defaultMusicDirPath = useAudioStore((s) => s.defaultMusicDirPath);
+  const scanProgress = useAudioStore((s) => s.scanProgress);
 
   const [activeTab, setActiveTab] = useState<LibraryTab>('albums');
   const [formatFilter, setFormatFilter] = useState<FormatFilterPill>('all');
@@ -149,10 +158,19 @@ export function LibraryView() {
 
   const selectedAlbum = albums.find((a) => a.album === selectedAlbumKey) ?? null;
 
+  const isScanning = scanning || (scanProgress !== null && !scanProgress.isComplete);
+
   const handleScan = async () => {
     setScanning(true);
-    await scanLibrary(['/mnt/music/Masters', '/mnt/music/DSD', '/mnt/music/Atmos', '/mnt/music/Live_CUE']);
-    setScanning(false);
+    try {
+      if (libraryFolders.length > 0) {
+        await rescanAllFolders();
+      } else {
+        await pickAndAddFolder();
+      }
+    } finally {
+      setScanning(false);
+    }
   };
 
   return (
@@ -169,15 +187,32 @@ export function LibraryView() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void handleScan()}
-          disabled={scanning}
-          className="inline-flex items-center gap-2 rounded-[8px] border border-[#2B3342] bg-[#1C222D] px-3.5 py-2 text-xs font-semibold text-[#F2F4F8] transition-colors duration-150 hover:border-[#10B981]"
-        >
-          <FolderSearch className="h-4 w-4 text-[#10B981]" aria-hidden="true" />
-          {scanning ? 'Scanning Watch Folders...' : 'Scan Watch Folders'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <ExplainTooltip termId="add_music_folder">
+            <button
+              type="button"
+              onClick={() => void pickAndAddFolder()}
+              className="inline-flex items-center gap-2 rounded-[8px] bg-[#10B981] px-3.5 py-2 text-xs font-semibold text-[#0B0D10] transition-colors duration-150 hover:bg-[#059669] shadow"
+            >
+              <FolderPlus className="h-4 w-4" aria-hidden="true" />
+              <span>+ Add Music Folder</span>
+            </button>
+          </ExplainTooltip>
+
+          <button
+            type="button"
+            onClick={() => void handleScan()}
+            disabled={isScanning}
+            className="inline-flex items-center gap-2 rounded-[8px] border border-[#2B3342] bg-[#1C222D] px-3.5 py-2 text-xs font-semibold text-[#F2F4F8] transition-colors duration-150 hover:border-[#10B981]"
+          >
+            {isScanning ? (
+              <Loader2 className="h-4 w-4 animate-spin text-[#10B981]" aria-hidden="true" />
+            ) : (
+              <FolderSearch className="h-4 w-4 text-[#10B981]" aria-hidden="true" />
+            )}
+            {isScanning ? 'Scanning Watch Folders...' : 'Scan Watch Folders'}
+          </button>
+        </div>
       </header>
 
       {lastScanJob && (
@@ -185,6 +220,64 @@ export function LibraryView() {
           Job <span className="mono-telemetry text-[#10B981]">{lastScanJob.jobId}</span> indexed{' '}
           <span className="mono-telemetry text-[#F2F4F8]">{lastScanJob.discoveredFiles}</span> files and split{' '}
           <span className="mono-telemetry text-[#F2F4F8]">{lastScanJob.cueSheetsSplit}</span> CUE image sheet.
+        </div>
+      )}
+
+      {/* Live Scan Progress Indicator */}
+      {scanProgress && !scanProgress.isComplete && (
+        <div className="rounded-[10px] border border-[#2B3342] bg-[#14181F] p-4">
+          <div className="flex items-center justify-between text-xs mb-2">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-[#10B981]" />
+              <span className="font-medium text-[#F2F4F8]">Indexing Music Files...</span>
+            </div>
+            <span className="font-mono text-[#10B981] text-xs">
+              {scanProgress.filesScanned} files scanned · {scanProgress.tracksAdded} tracks added
+            </span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-[#0B0D10] overflow-hidden">
+            <div className="h-full bg-[#10B981] w-2/3 animate-pulse" />
+          </div>
+          {scanProgress.currentDirectory && (
+            <div className="mt-1.5 font-mono text-[10.5px] text-[#9AA4B2] truncate">
+              Directory: {scanProgress.currentDirectory}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Empty State Card when tracks.length === 0 */}
+      {tracks.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-[14px] border border-dashed border-[#2B3342] bg-[#14181F] p-12 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#1C222D] border border-[#2B3342] text-[#10B981] mb-4">
+            <Disc3 className="h-7 w-7 opacity-80" />
+          </div>
+          <h2 className="font-display text-lg font-bold text-[#F2F4F8]">Your Library is Empty</h2>
+          <p className="mt-1 text-xs text-[#9AA4B2] max-w-md">
+            No lossless tracks have been indexed into SQLite library.db yet. Add a music folder containing FLAC, WAV, ALAC, DSD, or CUE files to get started.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <ExplainTooltip termId="add_music_folder">
+              <button
+                type="button"
+                onClick={() => void pickAndAddFolder()}
+                className="inline-flex items-center gap-2 rounded-[8px] bg-[#10B981] px-5 py-2.5 text-xs font-bold text-[#0B0D10] hover:bg-[#059669] transition-all shadow-lg shadow-[#10B981]/20"
+              >
+                <FolderPlus className="h-4 w-4" />
+                <span>+ Add Music Folder</span>
+              </button>
+            </ExplainTooltip>
+            {defaultMusicDirExists && defaultMusicDirPath && !libraryFolders.some((f) => f.path === defaultMusicDirPath) && (
+              <button
+                type="button"
+                onClick={() => void addMusicFolder(defaultMusicDirPath)}
+                className="inline-flex items-center gap-2 rounded-[8px] border border-[#2B3342] bg-[#1C222D] px-4 py-2.5 text-xs font-medium text-[#F2F4F8] hover:border-[#10B981] transition-all"
+              >
+                <Folder className="h-4 w-4 text-[#10B981]" />
+                <span>Add ~/Music</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 

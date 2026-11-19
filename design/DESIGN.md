@@ -56,13 +56,6 @@ spacing:
   md: 16px
   lg: 24px
   xl: 32px
-motion:
-  snappy:
-    duration: 140ms
-    timingFunction: "cubic-bezier(0.2, 0, 0, 1)"
-  mode-swap:
-    duration: 240ms
-    timingFunction: "ease-out"
 components:
   app-shell:
     backgroundColor: "{colors.surface}"

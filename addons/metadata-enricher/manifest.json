@@ -1,0 +1,27 @@
+{
+  "id": "metadata-enricher",
+  "name": "Metadata Enricher (MusicBrainz + AcoustID)",
+  "version": "1.2.0",
+  "apiVersion": "aura.addon/v1",
+  "pluginType": "metadata",
+  "author": "AuraHiFi First-Party",
+  "description": "Chromaprint AcoustID fingerprinting, MusicBrainz <= 1 req/s rate-limited tagging, and Discogs PAT release enrichment.",
+  "license": "Apache-2.0",
+  "allowedHosts": [
+    "musicbrainz.org",
+    "api.acoustid.org",
+    "api.discogs.com"
+  ],
+  "maxMemoryMb": 32,
+  "memoryMaxPages": 512,
+  "maxHttpResponseBytes": 10485760,
+  "wasi": false,
+  "hostFunctions": [
+    "compute_chromaprint_fp",
+    "propose_tag_diff",
+    "read_scoped_credential"
+  ],
+  "sha256": "adfcc1a2dafbb0e9615160bba9f32cf29f0816f1421f0da873fea5ce7de3a710",
+  "signature": "d932dc80a3b3befdc09dc385a000bedd505eea9ab38f4c320ceb4db782c8972f13f2bf81325b8622ef65164e839d484544f8291fb594cc215de6a28d8a027108",
+  "signerKeyId": "aurahifi-ed25519-2026"
+}

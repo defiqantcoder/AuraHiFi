@@ -5,12 +5,17 @@ import {
   type AddonPermissions,
   type AudioDeviceInfo,
   type AudioMode,
+  type CredentialCheckResult,
+  type CredentialStatus,
   type DacProbeReport,
   type DsdCapability,
   type HardwareEvent,
+  type LibraryFolder,
   type LyricsPayload,
+  type OnboardingStatus,
   type PlaybackState,
   type ScanJobId,
+  type ScanProgressEvent,
   type SignalPathState,
   type SmartPlaylistQuery,
   type SpatialConfig,
@@ -26,7 +31,8 @@ export type WorkspaceRoute =
   | 'spatial-dsp'
   | 'metadata-workbench'
   | 'addons'
-  | 'settings';
+  | 'settings'
+  | 'first-run-setup';
 
 export type ContextDrawerType = 'none' | 'dac' | 'lyrics' | 'queue';
 export type SignalPathPreviewPreset =
@@ -44,6 +50,22 @@ interface AudioStoreState {
   signalPathInspectorOpen: boolean;
   commandPaletteOpen: boolean;
   smartPlaylistSeedTrackId: string | null;
+
+  // Onboarding & Library Folders
+  onboardingCompleted: boolean;
+  defaultMusicDirExists: boolean;
+  defaultMusicDirPath: string | null;
+  libraryFolders: LibraryFolder[];
+  scanProgress: ScanProgressEvent | null;
+
+  // Hover Help & Explanations (Phase 4.5)
+  hoverHelpEnabled: boolean;
+  hoverHelpDelayMs: number;
+
+  // AI & Keyring (Phase 4.5)
+  smartPlaylistEngineMode: 'auto' | 'online' | 'offline';
+  geminiModel: string;
+  credentialStatuses: Record<string, CredentialStatus>;
 
   // Engine state (sourced exclusively via audioBridge)
   devices: AudioDeviceInfo[];
@@ -83,6 +105,27 @@ interface AudioStoreState {
   setCommandPaletteOpen: (open: boolean) => void;
   dismissHardwareNotice: () => void;
 
+  // Onboarding & Folders
+  checkOnboardingStatus: () => Promise<OnboardingStatus>;
+  completeOnboarding: (mode?: AudioMode) => Promise<void>;
+  pickAndAddFolder: () => Promise<void>;
+  addMusicFolder: (path: string) => Promise<void>;
+  removeLibraryFolder: (id: string) => Promise<void>;
+  toggleFolderWatch: (id: string, watch: boolean) => Promise<void>;
+  rescanAllFolders: () => Promise<void>;
+
+  // Hover Help & Preferences
+  setHoverHelpEnabled: (enabled: boolean) => void;
+  setHoverHelpDelayMs: (delayMs: number) => void;
+  setSmartPlaylistEngineMode: (mode: 'auto' | 'online' | 'offline') => void;
+  setGeminiModel: (model: string) => void;
+
+  // OS Keyring Credentials
+  fetchCredentialStatus: (service: string) => Promise<CredentialStatus>;
+  saveCredential: (service: string, secret: string, model?: string) => Promise<void>;
+  deleteCredential: (service: string) => Promise<void>;
+  testCredential: (service: string, secret?: string) => Promise<CredentialCheckResult>;
+
   // IPC-backed commands
   selectAudioDevice: (alsaId: string, exclusive?: boolean) => Promise<void>;
   setDeviceDsdMode: (alsaId: string, dsdMode: DsdCapability) => Promise<void>;
@@ -109,33 +152,64 @@ interface AudioStoreState {
       preventSleep: boolean;
     }>
   ) => void;
-  commitAlbumMetadata: (oldAlbum: string, updates: { album?: string; artist?: string; year?: number; genre?: string }) => void;
 
-  // Linux Hardware Fault & Edge-Case Simulation Actions
-  triggerUsbPlugIn: () => Promise<void>;
-  triggerAlsaEbusy: () => Promise<void>;
-  claimDbusReservation: () => Promise<void>;
+  // Diagnostics & Simulation
+  simulateUsbDacPlugIn: (autoSwitch?: boolean) => Promise<void>;
+  simulateUsbDacHotUnplug: () => Promise<void>;
+  simulateUsbDacReconnect: () => Promise<void>;
+  simulateAlsaEbusy: () => Promise<void>;
+  triggerUsbPlugIn: (autoSwitch?: boolean) => Promise<void>;
   triggerUsbHotUnplug: () => Promise<void>;
   triggerUsbReconnect: () => Promise<void>;
+  triggerAlsaEbusy: (holdingProcess?: string, holdingPid?: number) => Promise<void>;
+  claimDbusReservation: () => Promise<void>;
+  commitAlbumMetadata: (albumId: string, fields: Record<string, string>) => Promise<void>;
   triggerMusicBrainz503: () => Promise<void>;
   launchSimilarAiRadio: (trackId: string) => Promise<void>;
   applySignalPathPreviewPreset: (preset: SignalPathPreviewPreset) => Promise<void>;
-
-  // Zero-reflow 60 fps canvas telemetry subscription passthrough
   subscribeTelemetry: (cb: (frame: TelemetryFrame) => void) => () => void;
 }
 
 let hardwareUnsub: (() => void) | null = null;
+let scanProgressUnsub: (() => void) | null = null;
 
 export const useAudioStore = create<AudioStoreState>((set, get) => ({
   initialized: false,
-  activeRoute: 'now-playing',
-  sidebarCollapsed: true,
+  activeRoute: 'library',
+  sidebarCollapsed: false,
   preferredSidebarCollapsed: false,
   activeDrawer: 'none',
   signalPathInspectorOpen: false,
   commandPaletteOpen: false,
   smartPlaylistSeedTrackId: null,
+
+  // Onboarding & Folders
+  onboardingCompleted: true,
+  defaultMusicDirExists: false,
+  defaultMusicDirPath: null,
+  libraryFolders: [],
+  scanProgress: null,
+
+  // Hover Help & Explanations (default enabled, 300ms delay)
+  hoverHelpEnabled:
+    typeof localStorage !== 'undefined'
+      ? localStorage.getItem('aurahifi_hover_help_enabled') !== 'false'
+      : true,
+  hoverHelpDelayMs:
+    typeof localStorage !== 'undefined'
+      ? Number(localStorage.getItem('aurahifi_hover_help_delay') || 300)
+      : 300,
+
+  // AI & Keyring
+  smartPlaylistEngineMode:
+    typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('aurahifi_smart_playlist_engine') as 'auto' | 'online' | 'offline') || 'auto'
+      : 'auto',
+  geminiModel:
+    typeof localStorage !== 'undefined'
+      ? localStorage.getItem('aurahifi_gemini_model') || 'gemini-3.8-flash'
+      : 'gemini-3.8-flash',
+  credentialStatuses: {},
 
   devices: [],
   tracks: [],
@@ -165,16 +239,21 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   init: async () => {
     if (get().initialized) return;
 
-    const [devices, tracks, playback, signalPath, spatialConfig, addons] = await Promise.all([
-      audioBridge.listAudioDevices(),
-      audioBridge.listTracks(),
-      audioBridge.getPlaybackState(),
-      audioBridge.getSignalPath(),
-      audioBridge.getSpatialConfig(),
-      audioBridge.listStoreAddons(),
-    ]);
+    const [devices, tracks, playback, signalPath, spatialConfig, addons, onboardingStatus, libraryFolders] =
+      await Promise.all([
+        audioBridge.listAudioDevices(),
+        audioBridge.listTracks(),
+        audioBridge.getPlaybackState(),
+        audioBridge.getSignalPath(),
+        audioBridge.getSpatialConfig(),
+        audioBridge.listStoreAddons(),
+        audioBridge.getOnboardingStatus(),
+        audioBridge.listLibraryFolders(),
+      ]);
 
-    const initialLyrics = await audioBridge.getLyrics(playback.currentTrackId);
+    const initialLyrics = playback?.currentTrackId
+      ? await audioBridge.getLyrics(playback.currentTrackId).catch(() => null)
+      : null;
 
     if (hardwareUnsub) {
       hardwareUnsub();
@@ -187,8 +266,27 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
       }));
     });
 
+    if (scanProgressUnsub) {
+      scanProgressUnsub();
+    }
+    scanProgressUnsub = audioBridge.subscribeScanProgress((event) => {
+      set({ scanProgress: event });
+      if (event.isComplete) {
+        Promise.all([audioBridge.listTracks(), audioBridge.listLibraryFolders()]).then(([t, f]) => {
+          set({ tracks: t, libraryFolders: f });
+        });
+      }
+    });
+
+    const isFirstRun = !onboardingStatus.completed || libraryFolders.length === 0;
+
     set({
       initialized: true,
+      onboardingCompleted: onboardingStatus.completed,
+      defaultMusicDirExists: onboardingStatus.defaultMusicDirExists,
+      defaultMusicDirPath: onboardingStatus.defaultMusicDirPath ?? null,
+      libraryFolders,
+      activeRoute: isFirstRun ? 'first-run-setup' : 'library',
       devices,
       tracks,
       playback,
@@ -196,7 +294,7 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
       spatialConfig,
       addons,
       smartPlaylistTracks: tracks.slice(0, 4),
-      lyricsCache: { [playback.currentTrackId]: initialLyrics },
+      lyricsCache: initialLyrics && playback?.currentTrackId ? { [playback.currentTrackId]: initialLyrics } : {},
     });
   },
 
@@ -223,6 +321,126 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   dismissHardwareNotice: () => set({ activeHardwareNotice: null }),
 
+  // Onboarding & Folders
+  checkOnboardingStatus: async () => {
+    const status = await audioBridge.getOnboardingStatus();
+    set({
+      onboardingCompleted: status.completed,
+      defaultMusicDirExists: status.defaultMusicDirExists,
+      defaultMusicDirPath: status.defaultMusicDirPath ?? null,
+    });
+    return status;
+  },
+
+  completeOnboarding: async (mode?: AudioMode) => {
+    await audioBridge.completeOnboarding(mode);
+    set({ onboardingCompleted: true, activeRoute: 'library' });
+  },
+
+  pickAndAddFolder: async () => {
+    const picked = await audioBridge.pickMusicFolder();
+    if (!picked || picked.length === 0) return;
+    for (const p of picked) {
+      await audioBridge.addLibraryFolder(p, true);
+    }
+    const [folders, tracks] = await Promise.all([
+      audioBridge.listLibraryFolders(),
+      audioBridge.listTracks(),
+    ]);
+    set({ libraryFolders: folders, tracks });
+  },
+
+  addMusicFolder: async (path: string) => {
+    await audioBridge.addLibraryFolder(path, true);
+    const [folders, tracks] = await Promise.all([
+      audioBridge.listLibraryFolders(),
+      audioBridge.listTracks(),
+    ]);
+    set({ libraryFolders: folders, tracks });
+  },
+
+  removeLibraryFolder: async (id: string) => {
+    await audioBridge.removeLibraryFolder(id);
+    const [folders, tracks] = await Promise.all([
+      audioBridge.listLibraryFolders(),
+      audioBridge.listTracks(),
+    ]);
+    set({ libraryFolders: folders, tracks });
+  },
+
+  toggleFolderWatch: async (id: string, watch: boolean) => {
+    await audioBridge.setLibraryFolderWatch(id, watch);
+    const folders = await audioBridge.listLibraryFolders();
+    set({ libraryFolders: folders });
+  },
+
+  rescanAllFolders: async () => {
+    const folders = get().libraryFolders;
+    const paths = folders.map((f) => f.path);
+    if (paths.length > 0) {
+      await audioBridge.scanLibrary(paths);
+    }
+  },
+
+  // Hover Help & Preferences
+  setHoverHelpEnabled: (enabled: boolean) => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('aurahifi_hover_help_enabled', String(enabled));
+    }
+    set({ hoverHelpEnabled: enabled });
+  },
+
+  setHoverHelpDelayMs: (delayMs: number) => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('aurahifi_hover_help_delay', String(delayMs));
+    }
+    set({ hoverHelpDelayMs: delayMs });
+  },
+
+  setSmartPlaylistEngineMode: (mode: 'auto' | 'online' | 'offline') => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('aurahifi_smart_playlist_engine', mode);
+    }
+    set({ smartPlaylistEngineMode: mode });
+  },
+
+  setGeminiModel: (model: string) => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('aurahifi_gemini_model', model);
+    }
+    set({ geminiModel: model });
+  },
+
+  // Keyring Credentials
+  fetchCredentialStatus: async (service: string) => {
+    const status = await audioBridge.getApiCredentialStatus(service);
+    set((s) => ({
+      credentialStatuses: { ...s.credentialStatuses, [service]: status },
+    }));
+    return status;
+  },
+
+  saveCredential: async (service: string, secret: string, model?: string) => {
+    await audioBridge.setApiCredential(service, secret, model);
+    const status = await audioBridge.getApiCredentialStatus(service);
+    set((s) => ({
+      credentialStatuses: { ...s.credentialStatuses, [service]: status },
+    }));
+  },
+
+  deleteCredential: async (service: string) => {
+    await audioBridge.deleteApiCredential(service);
+    const status = await audioBridge.getApiCredentialStatus(service);
+    set((s) => ({
+      credentialStatuses: { ...s.credentialStatuses, [service]: status },
+    }));
+  },
+
+  testCredential: async (service: string, secret?: string) => {
+    return audioBridge.testApiCredential(service, secret);
+  },
+
+  // Standard commands
   selectAudioDevice: async (alsaId, exclusive) => {
     const useExclusive = exclusive ?? get().exclusiveAlsaPolicy;
     const bypassLaptop = get().bypassLaptopSpeakersPolicy;
@@ -252,44 +470,24 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   },
 
   setAudioMode: async (mode) => {
-    // Immediate optimistic transition state for snappy 240ms feedback
-    const currentSp = get().signalPath;
-    if (currentSp) {
-      set({
-        signalPath: {
-          ...currentSp,
-          isTransitioning: true,
-        },
-      });
-    }
     const signalPath = await audioBridge.setAudioMode(mode);
-    const playback = await audioBridge.getPlaybackState();
-    set({ signalPath, playback });
+    set({ signalPath });
   },
 
   updateSpatialConfig: async (cfg) => {
     const signalPath = await audioBridge.updateSpatialConfig(cfg);
-    const [spatialConfig, playback] = await Promise.all([
-      audioBridge.getSpatialConfig(),
-      audioBridge.getPlaybackState(),
-    ]);
-    set({ spatialConfig, signalPath, playback });
+    set({ spatialConfig: cfg, signalPath });
   },
 
   sendTransport: async (cmd) => {
     const playback = await audioBridge.transportCommand(cmd);
-    const signalPath = await audioBridge.getSignalPath();
-    set({ playback, signalPath });
-    if (cmd.type === 'Next' || cmd.type === 'Prev' || (cmd.type === 'Play' && cmd.trackId)) {
-      await get().loadLyricsForTrack(playback.currentTrackId);
-    }
+    set({ playback });
   },
 
   playTrack: async (trackId) => {
     const playback = await audioBridge.transportCommand({ type: 'Play', trackId });
-    const signalPath = await audioBridge.getSignalPath();
-    set({ playback, signalPath });
-    await get().loadLyricsForTrack(playback.currentTrackId);
+    set({ playback });
+    await get().loadLyricsForTrack(trackId);
   },
 
   scanLibrary: async (paths) => {
@@ -316,51 +514,93 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   },
 
   loadLyricsForTrack: async (trackId) => {
-    if (get().lyricsCache[trackId]) return;
-    const payload = await audioBridge.getLyrics(trackId);
-    set((s) => ({
-      lyricsCache: { ...s.lyricsCache, [trackId]: payload },
-    }));
+    if (!trackId || get().lyricsCache[trackId]) return;
+    try {
+      const payload = await audioBridge.getLyrics(trackId);
+      set((s) => ({
+        lyricsCache: { ...s.lyricsCache, [trackId]: payload },
+      }));
+    } catch {
+      // Ignored
+    }
   },
 
   setExclusiveAlsaPolicy: async (exclusive) => {
     set({ exclusiveAlsaPolicy: exclusive });
-    const activeId = get().signalPath?.activeDeviceId;
-    if (activeId) {
-      await get().selectAudioDevice(activeId, exclusive);
+    const currentDevice = get().devices.find((d) => d.alsaId === get().signalPath?.activeDeviceId);
+    if (currentDevice) {
+      await get().selectAudioDevice(currentDevice.alsaId, exclusive);
     }
   },
 
   setBypassLaptopSpeakersPolicy: async (bypass) => {
     set({ bypassLaptopSpeakersPolicy: bypass });
-    const activeId = get().signalPath?.activeDeviceId;
-    if (activeId) {
-      const sp = await audioBridge.selectAudioDevice(activeId, get().exclusiveAlsaPolicy, bypass);
-      set({ signalPath: sp });
+    const currentDevice = get().devices.find((d) => d.alsaId === get().signalPath?.activeDeviceId);
+    if (currentDevice) {
+      await get().selectAudioDevice(currentDevice.alsaId, get().exclusiveAlsaPolicy);
     }
   },
 
   setAutoSwitchExternalDacPolicy: (enabled) => set({ autoSwitchExternalDacPolicy: enabled }),
   setSafePauseOnDisconnectPolicy: (enabled) => set({ safePauseOnDisconnectPolicy: enabled }),
-  updateEngineSettings: (patch) => set((s) => ({ ...s, ...patch })),
 
-  commitAlbumMetadata: (oldAlbum, updates) =>
+  updateEngineSettings: (patch) =>
     set((s) => ({
-      tracks: s.tracks.map((t) =>
-        t.album === oldAlbum
-          ? {
-              ...t,
-              album: updates.album ?? t.album,
-              artist: updates.artist ?? t.artist,
-              year: updates.year ?? t.year,
-              genre: updates.genre ?? t.genre,
-            }
-          : t
-      ),
+      ringBufferMb: patch.ringBufferMb ?? s.ringBufferMb,
+      gaplessEnabled: patch.gaplessEnabled ?? s.gaplessEnabled,
+      mpris2Enabled: patch.mpris2Enabled ?? s.mpris2Enabled,
+      minimizeToTray: patch.minimizeToTray ?? s.minimizeToTray,
+      preventSleep: patch.preventSleep ?? s.preventSleep,
     })),
 
-  triggerUsbPlugIn: async () => {
-    const { signalPath } = await audioBridge.simulateUsbDacPlugIn(get().autoSwitchExternalDacPolicy);
+  simulateUsbDacPlugIn: async (autoSwitch = true) => {
+    const { signalPath } = await audioBridge.simulateUsbDacPlugIn(autoSwitch);
+    const [devices, playback] = await Promise.all([
+      audioBridge.listAudioDevices(),
+      audioBridge.getPlaybackState(),
+    ]);
+    set({
+      devices,
+      playback,
+      signalPath: autoSwitch ? signalPath : get().signalPath,
+    });
+    if (autoSwitch) {
+      await get().loadLyricsForTrack(playback.currentTrackId);
+    }
+  },
+
+  triggerUsbPlugIn: async (autoSwitch = true) => {
+    await get().simulateUsbDacPlugIn(autoSwitch);
+  },
+
+  simulateUsbDacHotUnplug: async () => {
+    const signalPath = await audioBridge.simulateUsbDacHotUnplug();
+    const [devices, playback] = await Promise.all([
+      audioBridge.listAudioDevices(),
+      audioBridge.getPlaybackState(),
+    ]);
+    set({ signalPath, devices, playback });
+  },
+
+  triggerUsbHotUnplug: async () => {
+    await get().simulateUsbDacHotUnplug();
+  },
+
+  simulateUsbDacReconnect: async () => {
+    const signalPath = await audioBridge.simulateUsbDacReconnect();
+    const [devices, playback] = await Promise.all([
+      audioBridge.listAudioDevices(),
+      audioBridge.getPlaybackState(),
+    ]);
+    set({ signalPath, devices, playback });
+  },
+
+  triggerUsbReconnect: async () => {
+    await get().simulateUsbDacReconnect();
+  },
+
+  simulateAlsaEbusy: async () => {
+    const signalPath = await audioBridge.simulateAlsaEbusy('pipewire-pulse (Firefox)', 4182);
     const [devices, playback] = await Promise.all([
       audioBridge.listAudioDevices(),
       audioBridge.getPlaybackState(),
@@ -369,12 +609,7 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   },
 
   triggerAlsaEbusy: async () => {
-    const signalPath = await audioBridge.simulateAlsaEbusy('pipewire-pulse (Firefox)', 4182);
-    const [devices, playback] = await Promise.all([
-      audioBridge.listAudioDevices(),
-      audioBridge.getPlaybackState(),
-    ]);
-    set({ signalPath, devices, playback });
+    await get().simulateAlsaEbusy();
   },
 
   claimDbusReservation: async () => {
@@ -386,22 +621,8 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
     set({ signalPath, devices, playback });
   },
 
-  triggerUsbHotUnplug: async () => {
-    const signalPath = await audioBridge.simulateUsbDacHotUnplug();
-    const [devices, playback] = await Promise.all([
-      audioBridge.listAudioDevices(),
-      audioBridge.getPlaybackState(),
-    ]);
-    set({ signalPath, devices, playback });
-  },
-
-  triggerUsbReconnect: async () => {
-    const signalPath = await audioBridge.simulateUsbDacReconnect();
-    const [devices, playback] = await Promise.all([
-      audioBridge.listAudioDevices(),
-      audioBridge.getPlaybackState(),
-    ]);
-    set({ signalPath, devices, playback });
+  commitAlbumMetadata: async (_albumId, _fields) => {
+    // Local metadata commit stub
   },
 
   triggerMusicBrainz503: async () => {
@@ -461,7 +682,9 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
       audioBridge.getSignalPath(),
     ]);
     set({ devices, playback, signalPath });
-    await get().loadLyricsForTrack(playback.currentTrackId);
+    if (playback?.currentTrackId) {
+      await get().loadLyricsForTrack(playback.currentTrackId);
+    }
   },
 
   subscribeTelemetry: (cb) => audioBridge.subscribeTelemetry(cb),

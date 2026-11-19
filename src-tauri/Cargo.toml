@@ -1,0 +1,64 @@
+[package]
+name = "aurahifi"
+version = "0.1.0"
+description = "Precision Linux audiophile music player console with Bit-Perfect ALSA exclusive transport, Spatial Atmos/SOFA HRTF DSP, and sandboxed Extism add-ons."
+authors = ["AuraHiFi Contributors"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "aurahifi_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri v2 Shell & Async Runtime
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Audio Decoding (Pure Rust / Bundled)
+symphonia = { version = "0.6.1", features = ["all", "opt-simd"] }
+dsd-reader = "0.4.0"
+truehd = "0.7.2"
+
+# Audio Output & Thread Scheduling
+audio_thread_priority = "0.38.0"
+rtrb = "0.4"
+chromaprint-next = "0.1.0"
+hex = "0.4.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+alsa = "0.12.1"
+udev = "0.9.3"
+zbus = "5"
+mpris-server = "0.10.0"
+
+# Spatial & Audiophile DSP
+bs2b = "0.2.2"
+ebur128 = "0.1.11"
+rubato = "5.1.0"
+spectrum-analyzer = "2.0.0"
+
+# Library, Vector Search & Tagging (Bundled SQLite for single-installation distribution)
+rusqlite = { version = "0.43", features = ["bundled"] }
+sqlite-vec = "0.1"
+lofty = "0.25.5"
+
+# Sandboxed Extism Add-On Store & Cryptographic Provenance
+extism = "1"
+ed25519-dalek = "2"
+sha2 = "0.10"
+tauri-plugin-dialog = "2"
+tauri-plugin-keyring-store = "0.3"
+notify = "6"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true

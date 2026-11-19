@@ -1,0 +1,68 @@
+# cargo-deny configuration for AuraHiFi
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+]
+all-features = false
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = [
+    # Upstream transitive unmaintained crates in lofty / zbus v5 / gtk3
+    "RUSTSEC-2024-0436", # dtolnay/paste (used in lofty/spectrum-analyzer)
+    "RUSTSEC-2026-0370", # zvariant (merged into zbus 6.0; zbus 5 is active)
+    "RUSTSEC-2026-0371", # zbus_names (merged into zbus 6.0)
+    "RUSTSEC-2026-0372", # zvariant_derive (merged into zbus 6.0)
+    "RUSTSEC-2024-0370", # proc-macro-error (used in gtk3/glib macros)
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "MPL-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "OpenSSL",
+    "Apache-2.0 WITH LLVM-exception",
+    "CDLA-Permissive-2.0",
+    "CC0-1.0",
+]
+confidence-threshold = 0.8
+exceptions = [
+    # Scoped strictly to pure-Rust AcoustID Chromaprint decoder
+    { allow = ["LGPL-2.1-or-later"], name = "chromaprint-next" },
+]
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = [
+    # Strictly forbid Cavern non-commercial or proprietary spatial audio crates
+    { name = "cavern", reason = "Non-commercial license cannot be linked into core AuraHiFi player binary; isolate as Add-On plugin only." },
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

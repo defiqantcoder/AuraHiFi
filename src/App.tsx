@@ -14,6 +14,7 @@ import { MetadataWorkbenchView } from './views/MetadataWorkbenchView';
 import { SpatialStudioView } from './views/SpatialStudioView';
 import { AddOnStoreView } from './views/AddOnStoreView';
 import { SettingsView } from './views/SettingsView';
+import { FirstRunSetupView } from './views/FirstRunSetupView';
 
 export default function App() {
   const initialized = useAudioStore((s) => s.initialized);
@@ -60,6 +61,7 @@ export default function App() {
             {activeRoute === 'spatial-dsp' && <SpatialStudioView />}
             {activeRoute === 'addons' && <AddOnStoreView />}
             {activeRoute === 'settings' && <SettingsView />}
+            {activeRoute === 'first-run-setup' && <FirstRunSetupView />}
           </main>
         </div>
 
