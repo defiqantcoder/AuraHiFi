@@ -25,6 +25,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+#[allow(dead_code)]
 fn deterministic_waveform(mut state: u64, len: usize) -> Vec<f32> {
     let mut peaks = Vec::with_capacity(len);
     for i in 0..len {

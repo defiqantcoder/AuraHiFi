@@ -56,9 +56,3 @@ sha2 = "0.10"
 tauri-plugin-dialog = "2"
 tauri-plugin-keyring-store = "0.3"
 notify = "6"
-
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-strip = true

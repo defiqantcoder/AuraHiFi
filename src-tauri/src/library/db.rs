@@ -21,10 +21,14 @@ pub fn ensure_sqlite_vec_registered() {
 #[derive(Clone)]
 pub struct LibraryDb {
     conn: Arc<Mutex<Connection>>,
+    #[allow(dead_code)]
     db_path: PathBuf,
 }
 
 impl LibraryDb {
+    pub fn path(&self) -> &Path {
+        &self.db_path
+    }
     pub fn open_or_create(db_path: &Path) -> Result<Self> {
         ensure_sqlite_vec_registered();
         if let Some(parent) = db_path.parent() {
