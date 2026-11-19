@@ -13,3 +13,12 @@ addons/target/
 dist-release/
 src-tauri/addons/dist/bundled_addons.json
 
+# Local planning, agent rules & design artifacts (hidden from GitHub)
+agents/
+plan/
+design/
+DESIGN.md
+metadata.json
+bun.lock
+public/assets/aistudio/
+

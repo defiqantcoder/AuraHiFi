@@ -18,39 +18,9 @@
 
 ---
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Key Features](#key-features)
-  - [Bit-Perfect Transport & Hardware Isolation](#bit-perfect-transport--hardware-isolation)
-  - [Instant Bit-Perfect &harr; Spatial Audio Switching](#instant-bit-perfect--spatial-audio-switching)
-  - [In-Process SOFA HRTF & Parametric EQ](#in-process-sofa-hrtf--parametric-eq)
-  - [High-Performance SQLite Library & Vector Search](#high-performance-sqlite-library--vector-search)
-  - [Studio Dark UI & 60 fps Telemetry](#studio-dark-ui--60-fps-telemetry)
-  - [Sandboxed WebAssembly Add-On Store](#sandboxed-webassembly-add-on-store)
-- [Project Structure](#project-structure)
-- [Quick Start & Development](#quick-start--development)
-  - [Prerequisites](#prerequisites)
-  - [Web Preview (Mock AudioBridge)](#web-preview-mock-audiobridge)
-  - [Native Tauri Desktop Application](#native-tauri-desktop-application)
-- [Testing & Security Audit](#testing--security-audit)
-- [Typed IPC Contract](#typed-ipc-contract)
-- [Engineering Invariants](#engineering-invariants)
-- [Roadmap & Milestone Status](#roadmap--milestone-status)
-- [Documentation & Reference](#documentation--reference)
-
----
-
-## Overview
-
-**AuraHiFi** is a precision music playback console engineered specifically for Linux desktop environments (Ubuntu 24.04 LTS Noble and Ubuntu 26.04 LTS Resolute). It combines direct ALSA hardware exclusive transport with an in-process DSP pipeline, real-time 60 fps telemetry metering, and an Extism WebAssembly extension sandbox.
-
-Unlike conventional music players that rely on desktop sound servers to mix or resample audio, AuraHiFi negotiates direct hardware access with your DAC while remaining a cooperative desktop citizen via D-Bus device reservations.
-
----
-
 ## Architecture
+
+AuraHiFi couples a responsive React 19 / WebKitGTK frontend with a low-latency, real-time Rust audio engine on Tauri v2.
 
 ```mermaid
 flowchart TD
@@ -58,7 +28,7 @@ flowchart TD
         UI["Studio Dark UI & Views"]
         Zustand["Zustand State Store"]
         Canvas["60 fps HTML5 Canvas (FFT / VU Meters)"]
-        Bridge["src/lib/audioBridge.ts (Mock / Tauri Bridge)"]
+        Bridge["AudioBridge (Tauri IPC Bridge)"]
         UI --> Zustand
         UI --> Canvas
         UI --> Bridge
@@ -101,188 +71,64 @@ flowchart TD
     end
 ```
 
----
+### Architectural Breakdown
 
-## Key Features
-
-### Bit-Perfect Transport & Hardware Isolation
-- **Direct ALSA Exclusive Engine:** Addresses DACs by immutable ALSA string ID (`hw:CARD=<ID>,DEV=0`), supporting native PCM up to 384 kHz / 32-bit and native DSD (`DSD_U32_BE`) or DoP packaging.
-- **Cooperative PipeWire Isolation:** Requests DAC release via D-Bus (`org.freedesktop.ReserveDevice1.Audio<N>`) without terminating or altering PipeWire services, preserving notification audio on other sinks.
-- **Safe Hotplug Protection:** Real-time `udev` monitoring detects device disconnection instantly, zeroing buffers and halting playback before any audio can leak to onboard speakers.
-- **Strict Bit-Perfect Honesty:** Software volume is strictly locked at `0.0 dB` during bit-perfect playback. Any DSP, resampling, or volume adjustments immediately dismiss the bit-perfect indicator in the Signal Path Inspector.
-
-### Instant Bit-Perfect &harr; Spatial Audio Switching
-- **Zero-Pop Atomic Transition:** Smooth crossfade switching between raw bit-perfect transport and the multi-channel DSP chain using a 50 ms cosine mute ramp synchronized at sample zero-crossings.
-- **Dolby TrueHD Atmos:** In-process decoding with 7.1.4 spatial coordinate mapping.
-- **HDMI Bitstream Passthrough:** Direct IEC 61937 / IEC 958 burst packaging for external AVR decoding.
-
-### In-Process SOFA HRTF & Parametric EQ
-- **Binaural Headphone DSP:** Realistic spatialization using SOFA HRTF impulse responses via `audionimbus` (Steam Audio) with SADIE D1 defaults.
-- **Biquad Parametric EQ:** 10-band parametric equalizer supporting AutoEQ headphone compensation profiles and pre-amp gain adjustment.
-- **Bauer Crossfeed (bs2b):** Stateful high-frequency spatial blend for natural headphone listening.
-
-### High-Performance SQLite Library & Vector Search
-- **Local Tag Indexing:** Fast FTS5 full-text search across local tracks, albums, and artists powered by `rusqlite` and `lofty`.
-- **CUE Sheet Splitting:** Virtual track resolution from single-file album rips with millisecond accuracy.
-- **Acoustic Vector Embeddings:** Integrated `sqlite-vec` indexing with `bliss-audio` acoustic features for natural language mood and vibe querying.
-- **EBU R128 Loudness:** Dual track and album ReplayGain and True Peak scanning.
-
-### Studio Dark UI & 60 fps Telemetry
-- **Streamlined Precision Interface:** High-contrast, WCAG AA compliant layout styled with Tailwind CSS, Space Grotesk, Inter, and tabular JetBrains Mono figures.
-- **Zero-Lag Visualizer:** 64-band FFT spectrum analyzer and true-peak stereo VU meters rendering directly to HTML5 `<canvas>` via dedicated Tauri IPC binary streaming channels.
-- **Plain-Language Explanations:** Built-in interactive tooltips clarify technical audiophile terms across all screens.
-
-### Sandboxed WebAssembly Add-On Store
-- **Extism / Wasmtime Runtime:** Deny-by-default capabilities with strict memory limits, CPU fuel metering, and host function boundary checks.
-- **Cryptographic Verification:** Remote modules must provide Ed25519 signatures and SHA-256 hashes against trusted keys before loading.
-- **Curated Plugins:** First-party extensions for MusicBrainz metadata, AcoustID fingerprinting, Discogs releases, and LRCLIB synchronized lyrics.
+- **Direct ALSA Exclusive Transport (`src-tauri/src/audio`)**: Communicates directly with hardware DACs via immutable ALSA identifier strings (`hw:CARD=...,DEV=0`), isolating playback from desktop mixing servers. Acquires exclusive device access via D-Bus `org.freedesktop.ReserveDevice1` without interrupting desktop audio daemons on other sinks.
+- **In-Process Spatial DSP Engine (`src-tauri/src/spatial`)**: Multi-channel processing engine integrating Dolby TrueHD Atmos frame decoding, SOFA HRTF binaural headphone rendering, 10-band parametric EQ, and Bauer crossfeed (bs2b). Performs atomic transitions between bit-perfect direct transport and spatial DSP chains using a 50 ms cosine mute ramp synchronized at sample zero-crossings.
+- **High-Performance Music Database (`src-tauri/src/library`)**: SQLite database with SQLite-vec acoustic embeddings, FTS5 full-text search, CUE sheet parsing, and EBU R128 loudness analysis.
+- **Extism WebAssembly Add-On Sandbox (`src-tauri/src/addons`)**: Deny-by-default execution environment for third-party extensions. Modules execute inside isolated Wasmtime runtimes constrained by memory bounds, CPU fuel metering, host boundary validation, and cryptographic Ed25519 signature checks.
+- **Hardware-Accelerated UI (`src`)**: React 19 interface rendered through WebKitGTK. Real-time 60 fps telemetry streams (64-band FFT spectrum analyzer and stereo true-peak VU meters) are rendered onto an HTML5 canvas via direct binary IPC channels.
 
 ---
 
-## Project Structure
+## Features
 
-```text
-AuraHiFi/
-├── src/                        # React 19 + TypeScript frontend application
-│   ├── components/             # Reusable UI widgets, transport controls, and canvas visualizers
-│   ├── hooks/                  # Keyboard shortcut listeners and UI interaction hooks
-│   ├── lib/                    # Typed AudioBridge (Mock & Tauri IPC), DSP logic, and glossary
-│   ├── store/                  # Zustand global application state store
-│   └── views/                  # Primary views (Now Playing, Library, Spatial, Store, Settings)
-├── src-tauri/                  # Rust Tauri v2 desktop application backend
-│   ├── src/
-│   │   ├── addons/             # Extism WebAssembly runtime and sandbox policies
-│   │   ├── audio/              # ALSA exclusive output, D-Bus reservation, and udev monitoring
-│   │   ├── library/            # SQLite database, FTS5 search, and vector embeddings
-│   │   ├── spatial/            # TrueHD Atmos, SOFA HRTF, bs2b, and biquad EQ filters
-│   │   ├── commands.rs         # Tauri IPC command definitions
-│   │   └── state.rs            # Application state management and telemetry channels
-│   └── tests/                  # Security audits and sandbox constraint tests
-├── addons/                     # First-party WebAssembly add-ons
-│   ├── metadata-enricher/      # MusicBrainz and AcoustID metadata integration
-│   ├── lyrics-art/             # LRCLIB synchronized lyrics and artwork resolution
-│   └── smart-playlists/        # Hybrid vector-similarity playlist generator
-├── design/                     # Authoritative AuraHiFi Studio Dark design system
-├── plan/                       # Architecture specification and milestone tracking
-├── agents/                     # Contributor rules and engineering invariants
-└── .github/workflows/          # CI and security audit workflows
-```
+### Bit-Perfect ALSA Hardware Transport
+- **Direct Hardware Exclusive Mode**: Delivers unadulterated PCM (up to 384 kHz / 32-bit) and native DSD (`DSD_U32_BE`) or DoP packaging straight to external DACs via dedicated hardware addresses (`hw:CARD=<ID>,DEV=0`).
+- **Cooperative PipeWire / PulseAudio Reservation**: Utilizes standard D-Bus `ReserveDevice1` negotiation so system notifications remain active on other devices while AuraHiFi operates exclusively on your primary audiophile DAC.
+- **Safe Hotplug Protection**: Real-time `udev` monitoring detects DAC disconnections instantly, immediately clearing buffers and pausing transport to prevent audio leakage to onboard speakers.
+- **Signal Path Honesty Invariant**: Software volume is strictly locked at `0.0 dB` during bit-perfect playback. Any DSP, resampling, or volume adjustments immediately dismiss the BIT-PERFECT badge in the Signal Path Inspector.
 
----
+### In-Process Spatial Audio & Headphone DSP
+- **Dolby TrueHD Atmos Decoding**: 7.1.4 spatial coordinate decoding and downmixing, with direct HDMI IEC 61937 / IEC 958 bitstream passthrough for external AV receivers.
+- **SOFA HRTF Binaural Rendering**: Realistic three-dimensional spatial staging for headphones using Head-Related Transfer Functions (defaulting to SADIE D1 impulse response measurements).
+- **10-Band Parametric Equalizer**: Biquad PEQ filter bank supporting AutoEQ headphone profiles and customizable pre-amp gain.
+- **Bauer Crossfeed (bs2b)**: Natural analog speaker acoustic simulation on stereo headphones, eliminating listening fatigue from aggressively separated stereo mixes.
+- **Zero-Pop Atomic Mode Switching**: Seamless switching between bit-perfect direct transport and spatial DSP chains with a 50 ms cosine mute ramp.
 
-## Quick Start & Development
+### Library Management & Acoustic Search
+- **High-Speed FTS5 Search**: Sub-millisecond queries across tracks, albums, artists, and genres via indexed SQLite full-text search.
+- **CUE Sheet Splitting**: Automatic virtual track splitting for single-file lossless album image rips with millisecond cue accuracy.
+- **Vector-Similarity Acoustic Search**: Integrated `sqlite-vec` vector database with `bliss-audio` acoustic features for natural vibe, tempo, and mood matching.
+- **EBU R128 Loudness Normalization**: Comprehensive integrated LUFS and true-peak analysis for track and album ReplayGain tags.
 
-### Prerequisites
+### Studio Dark Telemetry UI
+- **60 fps Canvas Visualizer**: Low-overhead real-time 64-band FFT spectrum analyzer and calibrated stereo VU meter powered by direct binary IPC streams.
+- **Interactive Signal Path Inspector**: Visual inspection of every stage in the audio pipeline from source file decode through DSP to DAC output.
+- **Plain-Language Glossary**: Built-in hover explanations for complex audiophile and technical concepts (DoP, HRTF, DSD, LUFS, WASI, etc.).
 
-- **Node.js** (v20+ or v22+) or **Bun**
-- **Rust** (stable toolchain, 1.85+)
-- **Linux System Packages** (Ubuntu 24.04 / 26.04):
-  ```bash
-  sudo apt-get update && sudo apt-get install -y \
-    build-essential \
-    pkg-config \
-    libwebkit2gtk-4.1-dev \
-    libasound2-dev \
-    libudev-dev \
-    libdbus-1-dev
-  ```
-
-### Web Preview (Mock AudioBridge)
-
-Develop and test the frontend interface with simulated audio playback and telemetry without requiring native ALSA access:
-
-```bash
-# Install dependencies
-npm install
-
-# Start Vite development server
-npm run dev
-```
-
-Visit `http://localhost:3000` in your browser.
-
-### Native Tauri Desktop Application
-
-Launch the complete desktop application with native hardware integration:
-
-```bash
-# Run in desktop development mode
-npm run tauri dev
-
-# Package a release .deb installer
-npm run tauri build -- --bundles deb
-```
+### Sandboxed WebAssembly Add-Ons
+- **Extism / Wasmtime Plugin Architecture**: Extends player functionality safely without granting native OS access.
+- **Cryptographic Verification**: Requires Ed25519 digital signatures and SHA-256 verification against trusted keys before loading any plugin.
+- **Bundled First-Party Add-Ons**:
+  - *Metadata Enricher*: Automated MusicBrainz tag resolution and AcoustID fingerprint matching with token-bucket rate limiting.
+  - *Lyrics & Artwork*: Synchronized time-stamped lyrics from LRCLIB and album artwork retrieval.
+  - *Smart Playlists*: Hybrid acoustic-similarity and metadata-driven playlist generation.
 
 ---
 
-## Testing & Security Audit
+## Future Add-Ons
 
-AuraHiFi maintains a strict suite of unit, integration, and security audit tests.
+AuraHiFi's sandboxed add-on architecture is engineered for modular expansion. Upcoming extensions in development include:
 
-```bash
-# Run all workspace unit and integration tests
-cargo test --workspace
+### 1. Listen Together (Mini-Chat & Synchronized Music Room)
+A real-time, low-latency collaborative listening room enabling users to stream and listen to high-fidelity audio together synchronously:
+- **Sample-Accurate Clock Synchronization**: Sub-millisecond synchronized playback across networked AuraHiFi clients with automatic jitter compensation.
+- **Integrated In-App Mini-Chat**: A collapsible chat drawer within the player to discuss tracks, share timestamped reactions, and talk with friends while listening.
+- **Collaborative DJ Session**: Shared session queues with host privileges, guest queue requests, and vote-skip capabilities.
 
-# Run Extism WebAssembly sandbox adversarial security tests
-cargo test --test addon_sandbox_security
-
-# Run Tauri IPC boundary and permission security audits
-cargo test --test tauri_security_audit
-
-# Strict TypeScript typechecking
-npm run typecheck
-
-# Production frontend asset bundle
-npm run build
-```
-
----
-
-## Typed IPC Contract
-
-Communication between the UI and Rust backend is fully typed via [`src/lib/audioBridge.ts`](src/lib/audioBridge.ts):
-
-| Command / Channel | Category | Description |
-| :--- | :--- | :--- |
-| `list_audio_devices` | Hardware | Enumerates available sound cards, supported rates, and DAC types |
-| `select_audio_device` | Hardware | Acquires D-Bus exclusive reservation and opens ALSA transport |
-| `test_dac_capabilities` | Diagnostics | Probes hardware sample rates, bit depths, and DSD capabilities |
-| `set_audio_mode` | Playback | Switches between `bit_perfect` transport and `spatial` DSP mode |
-| `update_spatial_config` | DSP | Adjusts SOFA HRTF positions, bs2b presets, and 10-band PEQ curves |
-| `transport_command` | Playback | Dispatches play, pause, seek, track skip, and volume changes |
-| `scan_library` | Library | Asynchronously indexes selected local music folders |
-| `list_store_addons` | Add-Ons | Lists installed and available WebAssembly modules |
-| `install_addon` | Add-Ons | Verifies Ed25519 signature and registers add-on permissions |
-| `subscribe_telemetry` | Channel | 60 fps streaming binary channel for FFT bands and VU levels |
-| `subscribe_hardware_events` | Channel | Real-time notifications for DAC connection and rate updates |
-
----
-
-## Engineering Invariants
-
-1. **Real-Time Audio Safety:** Audio playback runs on an isolated thread promoted via RTKit. The output thread performs zero heap allocations, zero blocking disk/network I/O, and zero mutex locks.
-2. **Signal Path Honesty:** The Bit-Perfect indicator is only displayed when audio is delivered bit-for-bit unchanged at `0.0 dB` software volume. Any active processing immediately reflects in telemetry.
-3. **Cooperative System Behavior:** Hardware reservation uses standard desktop D-Bus interfaces (`ReserveDevice1`). System services like PipeWire are never forcibly killed or altered.
-4. **Deterministic Sandboxing:** WebAssembly extensions execute within restricted Extism sandboxes with bounded memory, CPU fuel constraints, and explicit user-approved host permissions.
-
----
-
-## Roadmap & Milestone Status
-
-- [x] **Phase 1 — UI & Mock Bridge:** Studio Dark design system, responsive multi-view console, 60 fps `<canvas>` FFT/VU meters, and MockAudioBridge.
-- [x] **Phase 2 — Tauri v2 Shell & Bit-Perfect Core:** Direct ALSA hardware exclusive mode (`hw:CARD=...`), D-Bus `ReserveDevice1` integration, and safe pause-on-unplug.
-- [x] **Phase 3 — Spatial Audio, Atmos & Headphone DSP:** 50 ms cosine pop-free atomic mode switch, TrueHD Atmos decoding, SOFA HRTF binaural rendering, and biquad PEQ.
-- [x] **Phase 4 — SQLite Library, Folder Picker & First-Run Setup:** Local SQLite metadata database, CUE sheet splitting, EBU R128 loudness analysis, and native folder selection.
-- [x] **Phase 4.5 — Plain-Language Tooltips & Keyring Integration:** Universal hover glossary, OS keyring secret storage, and hybrid AI smart playlist UI.
-- [x] **Phase 5 — Extism Add-On Store & First-Party Plugins:** Deny-by-default Wasm sandbox, cryptographic signature verification, and first-party add-on modules.
-- [x] **Phase 6 — Single-Install Packaging & System Verification:** Ubuntu 24.04 and 26.04 packaging, WebKitGTK 4.1 validation, and bit-perfect hardware verification.
-- [x] **Phase 7 — Security Testing & CI/CD Pipelines:** Automated cargo-deny license checks, adversarial sandbox security tests, and GitHub Actions CI workflows.
-
----
-
-## Documentation & Reference
-
-- [Design System Guide (`design/DESIGN.md`)](design/DESIGN.md) &mdash; Studio Dark UI color tokens, typography, and contrast rules.
-- [Implementation Plan (`plan/PLAN.md`)](plan/PLAN.md) &mdash; Full architectural specifications and SQLite schema details.
-- [Agent & Architecture Invariants (`agents/AGENTS.md`)](agents/AGENTS.md) &mdash; Workspace guidelines and audio thread constraints.
-- **Domain Rules:** [Rust Audio Engine](agents/rules/rust-audio-engine.md) &middot; [Frontend UI](agents/rules/frontend-ui.md) &middot; [Add-On Security](agents/rules/addon-security.md)
+### 2. Music Casting
+Lossless and high-resolution networked audio streaming from AuraHiFi's bit-perfect engine to external network speakers, receivers, and remote devices:
+- **Lossless Network Endpoints**: Bit-perfect streaming over local Wi-Fi / Ethernet to dedicated streamers, UPnP/DLNA renderers, and remote PipeWire/Linux nodes.
+- **Multi-Protocol Casting**: Modular support for major network casting standards, including AirPlay 2, Google Cast / Chromecast Audio, and DLNA/UPnP.
+- **Synchronized Multi-Room Zones**: Independent or grouped playback zones with per-device volume offset and DSP profile preservation.

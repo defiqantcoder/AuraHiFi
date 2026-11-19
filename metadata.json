@@ -1,6 +1,0 @@
-{
-  "name": "AuraHiFi",
-  "description": "Precision Linux audiophile music player console with Bit-Perfect ALSA exclusive transport, Spatial Atmos/SOFA HRTF DSP, live 60 fps FFT metering, and sandboxed Extism add-ons.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

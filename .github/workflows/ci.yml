@@ -71,9 +71,6 @@ jobs:
       - name: Build frontend assets
         run: npm run build
 
-      - name: Lint DESIGN.md tokens
-        run: npx @google/design.md lint DESIGN.md
-
       - name: Build and bundle first-party Wasm add-ons
         run: |
           cargo build --release --target wasm32-unknown-unknown --manifest-path addons/Cargo.toml
