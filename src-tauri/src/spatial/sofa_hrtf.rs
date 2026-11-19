@@ -565,9 +565,9 @@ mod tests {
             ..Default::default()
         };
         // Inject impulse on Left Front (ch 0) and Top Front Left (ch 8)
-        for s in 0..64 {
-            atmos.samples[s][0] = ((s as f32) * 0.2).sin() * 0.5;
-            atmos.samples[s][8] = ((s as f32) * 0.35).cos() * 0.4;
+        for (s, sample_slot) in atmos.samples.iter_mut().enumerate().take(64) {
+            sample_slot[0] = ((s as f32) * 0.2).sin() * 0.5;
+            sample_slot[8] = ((s as f32) * 0.35).cos() * 0.4;
         }
 
         let mut binaural = [0.0_f32; 128];

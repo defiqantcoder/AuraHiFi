@@ -406,9 +406,9 @@ mod tests {
             channel_count: 12,
             ..Default::default()
         };
-        for s in 0..32 {
-            for ch in 0..12 {
-                frame.samples[s][ch] = 0.5;
+        for slot in frame.samples.iter_mut().take(32) {
+            for sample in slot.iter_mut().take(12) {
+                *sample = 0.5;
             }
         }
         let mut stereo = [0.0_f32; 64];
