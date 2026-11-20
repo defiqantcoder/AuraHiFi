@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "aurahifi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "alsa",
  "audio_thread_priority",

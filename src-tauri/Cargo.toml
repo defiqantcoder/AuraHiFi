@@ -1,6 +1,6 @@
 [package]
 name = "aurahifi"
-version = "0.1.1"
+version = "0.1.2"
 description = "Precision Linux audiophile music player console with Bit-Perfect ALSA exclusive transport, Spatial Atmos/SOFA HRTF DSP, and sandboxed Extism add-ons."
 authors = ["AuraHiFi Contributors"]
 license = "Apache-2.0"
