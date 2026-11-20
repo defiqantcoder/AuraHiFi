@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/defiqantcoder/AuraHiFi/actions/workflows/ci.yml"><img src="https://github.com/defiqantcoder/AuraHiFi/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/defiqantcoder/AuraHiFi/actions/workflows/security.yml"><img src="https://github.com/defiqantcoder/AuraHiFi/actions/workflows/security.yml/badge.svg" alt="Security Audit"></a>
+  <a href="https://github.com/defiqantcoder/AuraHiFi/actions/workflows/ci.yml"><img src="https://github.com/defiqantcoder/AuraHiFi/workflows/CI/badge.svg" alt="CI"></a>
+  <a href="https://github.com/defiqantcoder/AuraHiFi/actions/workflows/security.yml"><img src="https://github.com/defiqantcoder/AuraHiFi/workflows/Security%20Audit/badge.svg" alt="Security Audit"></a>
   <img src="https://img.shields.io/badge/Platform-Ubuntu%2024.04%20%7C%2026.04%20LTS-E95420?logo=ubuntu&logoColor=white" alt="Ubuntu">
   <img src="https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri&logoColor=black" alt="Tauri v2">
   <img src="https://img.shields.io/badge/Rust-1.85%2B-DEA584?logo=rust&logoColor=white" alt="Rust">
